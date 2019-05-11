@@ -22,7 +22,8 @@ LOGIN_PW = "kouhei03"
 COMPANY = "icd"
 
 # USAGE
-USAGE = "Usage: " + sys.argv[0] + " [ yyyy mm dd ]"
+USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
+        " - mode : 1(overwork check) or 2(stamp miss check)"
 
 # log設定
 logging.basicConfig(level=logging.INFO,
@@ -53,31 +54,36 @@ def getSpan(nowDate, type):
         対象期間(開始日/終了日)を取得するための関数
     Args:
         nowDate (datetime): 対象期間取得のための基幹日
-        type (int): 1:開始日, 2:終了日 のいずれか
+        type (int): 1:20日締め月間(残業時間等), 2:月末締め月間 のいずれか
     Returns:
-        datetime(relativedelta): 開始日または終了日
+        fromDate(relativedelta), toDate(relativedelta): 開始日,終了日
     """
-    logger.info("START function getSpan")
-    FROM_DAY = 21 # 開始日
-    #FROM_DAY = 1 # 開始日
+    logger.info("START function getSpan nowDate:" + nowDate.strftime('%Y%m%d') + " type:" + str(type))
 
-    # 当月開始日より前 (20日以前)
-    if nowDate.day < FROM_DAY:
-        toDate = date(nowDate.year, nowDate.month, FROM_DAY) - relativedelta(days=1) #(当月20日)
-        fromDate = toDate - relativedelta(months=1) + relativedelta(days=1) #(前月21日)
-    # 当月開始日以降 (21日以降)
-    else :
-        fromDate = date(nowDate.year, nowDate.month, FROM_DAY) #(当月21日)
-        toDate = fromDate + relativedelta(months=1) - relativedelta(days=1) #(翌月20日)
+    try:
+        # 締め期間ルール設定
+        if type == 1:
+            FROM_DAY = 21
+        elif type == 2:
+            FROM_DAY = 1
+        else:
+            logger.error("function getSpan: input type is nether 1 nor 2")
+            raise ValueError
+
+        # 当月開始日より前
+        if nowDate.day < FROM_DAY:
+            toDate = date(nowDate.year, nowDate.month, FROM_DAY) - relativedelta(days=1)
+            fromDate = toDate - relativedelta(months=1) + relativedelta(days=1)
+        # 当月開始日以降
+        else :
+            fromDate = date(nowDate.year, nowDate.month, FROM_DAY)
+            toDate = fromDate + relativedelta(months=1) - relativedelta(days=1)
+
+    except ValueError as e :
+        logger.error("function getSpan: " + str(e))
+        raise (e)
     
-    if type == 1:
-        ret = fromDate
-    elif type == 2:
-        ret = toDate
-    else:
-        logger.error("function getSpan: input type is nether 1 nor 2")
-        raise ValueError
-    return ret
+    return fromDate, toDate
 
 ####################################
 # メニュークリック関数
@@ -115,19 +121,19 @@ def menuClick(titleStr):
 logger.info('START input parameter check')
 args = sys.argv
 try:
-    # 引数3個
-    if len(args) == 4:
-        nowDate = date(int(args[1]), int(args[2]), int(args[3]))
-    # 引数0個
-    elif len(args) == 1:
+    # 引数4個
+    if len(args) == 4 +1:
+        nowDate = date(int(args[2]), int(args[3]), int(args[4]))
+    # 引数1個
+    elif len(args) == 1 +1:
         nowDate = date.today()
     else :
         raise SyntaxError
-
+    
 except SyntaxError as e:
     logger.error(e)
     logger.error(USAGE)
-    logger.error("引数は0個または3個のみ設定可能です。")
+    logger.error("引数は1個または4個のみ設定可能です。")
     sys.exit()
 
 except ValueError as e:
@@ -136,9 +142,19 @@ except ValueError as e:
     logger.error("引数は年月日に適した数値のみ設定可能です。")
     sys.exit()
 
+try:
+    mode = int(args[1])
+    if not (mode == 1 or mode == 2):
+        raise ValueError
+
+except ValueError as e:
+    logger.error(e)
+    logger.error(USAGE)
+    logger.error("modeは1または2のみ設定可能です。")
+    sys.exit()
+
 # 開始日、終了日を取得
-startdate = getSpan(nowDate,1)
-enddate = getSpan(nowDate,2)
+startdate,enddate = getSpan(nowDate,mode)
 logger.info("collectionTerm: "+str(startdate)+" - "+str(enddate))
 
 # 結果CSVファイル名
@@ -174,7 +190,10 @@ driver.find_element_by_name("LOGINBUTTON").click()
 ####################################
 # ホーム画面 : 就業週報月報画面へ遷移
 ####################################
-menuClick("就業週報月報")
+if mode == 1:
+    menuClick("就業週報月報")
+elif mode == 2:
+    menuClick("打ち忘れﾁｪｯｸﾘｽﾄ")
 
 ####################################
 # 就業週報月報画面 : 期間検索
