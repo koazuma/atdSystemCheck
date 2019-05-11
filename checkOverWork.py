@@ -9,17 +9,10 @@ import logging
 import sys
 import os
 import csv
+import configparser
 
-# 環境情報
-PATH_CHROMEDRIVER = "c:/driver/chromedriver.exe"
-
-# サイト情報
-URL_LOGIN = "https://cxg8.i-abs.co.jp/cyberx/login.asp"
-
-# ログイン情報
-LOGIN_ID = "111"
-LOGIN_PW = "kouhei03"
-COMPANY = "icd"
+# configファイル名
+CONFIGFILE = 'setting.ini'
 
 # USAGE
 USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
@@ -153,6 +146,10 @@ except ValueError as e:
     logger.error("modeは1または2のみ設定可能です。")
     sys.exit()
 
+# config読み込み
+config = configparser.ConfigParser()
+config.read(CONFIGFILE)
+
 # 開始日、終了日を取得
 startdate,enddate = getSpan(nowDate,mode)
 logger.info("collectionTerm: "+str(startdate)+" - "+str(enddate))
@@ -162,17 +159,18 @@ CSVNAME = "OverWork"+startdate.strftime('_F%Y%m%d')+enddate.strftime('-T%Y%m%d')
     +datetime.now().strftime('_@%Y%m%d-%H%M%S') +".csv"
 
 # webDriver起動
-if os.path.exists(PATH_CHROMEDRIVER):
-    driver = webdriver.Chrome(PATH_CHROMEDRIVER)
+chromedriver_path = config.get('environment', 'chromedriver')
+if os.path.exists(chromedriver_path):
+    driver = webdriver.Chrome(chromedriver_path)
 else:    
-    logger.error("実行可能なWebDriver'"+PATH_CHROMEDRIVER+"'が見つかりません。")
+    logger.error("実行可能なWebDriver'"+chromedriver_path+"'が見つかりません。")
     sys.exit()
 
 ####################################
 # ログイン認証
 ####################################
 logger.info('START login')
-driver.get(URL_LOGIN)
+driver.get(config.get('siteinfo', 'url'))
 
 # 表示待ち
 WebDriverWait(driver, 10).until(
@@ -180,9 +178,9 @@ WebDriverWait(driver, 10).until(
 )
 
 # ID/PW入力
-driver.find_element_by_name("DataSource").send_keys(COMPANY)
-driver.find_element_by_name("LoginID").send_keys(LOGIN_ID)
-driver.find_element_by_name("PassWord").send_keys(LOGIN_PW)
+driver.find_element_by_name("DataSource").send_keys(config.get('siteinfo', 'cp'))
+driver.find_element_by_name("LoginID").send_keys(config.get('siteinfo', 'id'))
+driver.find_element_by_name("PassWord").send_keys(config.get('siteinfo', 'pw'))
 
 # ログインボタンクリック
 driver.find_element_by_name("LOGINBUTTON").click()
