@@ -3,6 +3,7 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 import logging
@@ -10,6 +11,7 @@ import sys
 import os
 import csv
 import configparser
+import traceback
 
 # configファイル名
 CONFIGFILE = 'setting.ini'
@@ -107,6 +109,209 @@ def menuClick(titleStr):
     else:
         return True
 
+def getOverWork():
+    ####################################
+    # 就業週報月報画面 : 期間検索
+    ####################################
+    #----- 就業週報月報のtdタグidルール -----
+    # 各tdタグは以下のような命名規則になっている
+    # grdXyw1500g-rc-{日付-1}-{列ID}
+    DAILYID_F = "grdXyw1500g-rc-" # 日毎のid先頭部分
+    # 列ID(列数-1)
+    itemids = {
+        "法定外勤":"13",
+        "深夜残業":"15",
+        "休日勤務":"16",
+        "休日深夜":"17"
+    }
+    NAME = "氏名"
+    CMPID = "社員番号"
+    TOTALTIME = "残業合計"
+    FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
+    EMPTY_MARK = "----" # 稼働時間ゼロ表示
+    #----------------------------------------
+    logger.info('START monthlyWorkReport display')
+    # フレーム指定
+    driver.switch_to.parent_frame()
+    frames = driver.find_elements_by_xpath("//frame")
+    driver.switch_to.frame(frames[1])
+
+    # 表示月、取得データを初期化
+    dispmonth = 0
+    rets = []
+
+    while True:
+
+        # 氏名、社員番号取得
+        name = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
+        cmpid = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
+
+        # 指定日、表示月、稼働時間を初期化
+        curdate = startdate
+        wt = {}
+        wt[NAME] = name
+        wt[CMPID] = cmpid
+        for v in itemids.keys():
+            wt[v] = relativedelta()
+        wt[TOTALTIME] = relativedelta()
+
+        # 終了日まで指定日をインクリメントしながらデータ取得
+        while curdate <= enddate:
+            # 月を指定して月報を表示(初回および月が変わった時のみ)
+            if curdate.month != dispmonth:
+                dtElm = driver.find_element_by_id("CmbYM")
+                Select(dtElm).select_by_value(curdate.strftime("%Y%m"))
+                driver.find_element_by_name("srchbutton").click()
+                dispmonth = curdate.month
+                
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.XPATH, "//td[@id='" + FDATE_ID + "']"))
+                )
+
+            # 対象日の指定列のデータを取得
+            for key in itemids.keys():
+                # 対象日のtdタグのidを作成
+                tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
+                elm = driver.find_element_by_xpath("//td[@id='"+tgtid+"']")
+                workTime = elm.get_attribute("DefaultValue")
+                if workTime == EMPTY_MARK:
+                    workTime = "00:00"
+                wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+                wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+
+            # 対象日のデータ取得を終えたらインクリメントして翌日へ
+            curdate += relativedelta(days=1)
+        # 対象社員の結果をリストに保存
+        rets.append(wt)
+
+        ####################################
+        # 対象社員を変更
+        ####################################
+        # 次が選択可なら次社員を選択
+        if driver.find_element_by_name("button4").is_enabled() :
+            driver.find_element_by_name("button4").click()
+        # 次が選択不可ならループ終了
+        else :
+            break
+
+    ####################################
+    # 結果CSV出力
+    ####################################
+    logger.info('START csv report output')
+    # ファイルオープン
+    with open(CSVNAME, 'w', newline='', encoding='utf_8_sig') as fp:
+        writer = csv.writer(fp, lineterminator='\r\n')
+        
+        # ヘッダ行出力
+        writer.writerow(wt.keys())
+
+        # データ行出力
+        for ret in rets: # メンバー分ループ
+            csvlist = []
+            for key in ret.keys(): # 出力項目分ループ
+                # 文字列型はそのまま出力
+                if type(ret[key]) is str:
+                    csvlist.append(ret[key])
+                # 時間(relativedelta)型はHH:MM書式で出力
+                elif type(ret[key]) is relativedelta:
+                    csvlist.append('{hour:02}:{min:02}'.format(
+                        hour=ret[key].hours+ret[key].days*24,min=ret[key].minutes))
+                else:
+                    raise TypeError("type: "+type(ret[key]))
+
+            writer.writerow(csvlist)
+            logger.debug(csvlist)
+        logger.info("Output '"+CSVNAME+"'.")
+
+def checkStampMiss():
+    logger.info('START function checkStampMiss')
+    try:
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+        # 個人選択ボタンクリック
+        driver.find_element_by_xpath('//*[@id="Xyw1120g_form"]/table/tbody/tr[2]/td/table[2]/tbody/tr/td/table/tbody/tr/td[2]/input').click()
+        
+        # サブウインドウにフォーカス移動
+        wh = driver.window_handles
+        driver.switch_to.window(wh[1])
+        logger.info('switch target window - '+str(wh[1]))
+        # フレーム指定
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+        # 全選択ラジオボタンクリック
+        driver.find_element_by_id('AllSel').click()
+        # 確定ボタンクリック
+        driver.find_element_by_id('buttonKAKUTEI').click()
+        
+        # メインウィンドウにフォーカス移動
+        driver.switch_to.window(wh[0])
+        logger.info('switch target window - '+str(wh[0]))
+
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+
+        # テーブルのデータ取得
+        # テーブル要素のid構成を利用して取得
+        # テーブル行数 : row(１行目:0, 2行目:1, ...)
+        # 行自体          : grdXyw1120G-r-{row}
+        # 社員番号        : grdXyw1120G-rc-{row}-0
+        # 氏名            : grdXyw1120G-rc-{row}-1
+        # 対象日          : grdXyw1120G-rc-{row}-2
+        # メッセージ項目1  : grdXyw1120G-rc-{row}-4
+        TRIDBASE = 'grdXyw1120G-r-'
+        TDIDBASE = 'grdXyw1120G-rc-'
+        itemids = {
+            "社員番号":"0",
+            "氏名":"1",
+            "対象日":"2",
+            "メッセージ項目1":"4"
+        }
+
+        # 初期化
+        row = 0
+        rets = []
+
+        while True:
+            # 初期化
+            ret = {}
+            # 対象行の有無チェック
+            rowid = TRIDBASE + str(row)
+            try:
+                driver.find_element_by_id(rowid)
+            except NoSuchElementException as e :
+#            except selenium.common.exceptions.NoSuchElementException as e :
+                logging.info('最終行到達')
+                break
+            except Exception as e :
+                logging.error('想定外の例外エラー発生')
+                logging.error(e)
+                error_type, error_value, error_traceback = sys.exc_info()
+                traceback_list = traceback.format_tb(error_traceback)
+                
+                logging.error('---------------------')
+                print(error_type)
+                logging.error('---------------------')
+                print(error_value)
+                logging.error('---------------------')
+                print(traceback_list)
+                raise
+
+            # 要素取得
+            for key in itemids.keys():
+                targetid = TDIDBASE + str(row) + '-' + itemids[key]
+                ret[key] = driver.find_element_by_id(targetid).text
+
+            logging.info(ret)
+            row += 1
+
+    except Exception as e:
+        logger.error(e)
+        raise
+
 ####################################
 # 初期処理
 ####################################
@@ -147,22 +352,27 @@ except ValueError as e:
     sys.exit()
 
 # config読み込み
-config = configparser.ConfigParser()
-config.read(CONFIGFILE)
+try:
+    config = configparser.ConfigParser()
+    config.read(CONFIGFILE)
+except Exception as e:
+    logger.error('configファイル"'+CONFIGFILE+'"が見つかりません。')
+    sys.exit()
 
 # 開始日、終了日を取得
 startdate,enddate = getSpan(nowDate,mode)
 logger.info("collectionTerm: "+str(startdate)+" - "+str(enddate))
 
-# 結果CSVファイル名
+# 結果CSVファイル名セット
 CSVNAME = "OverWork"+startdate.strftime('_F%Y%m%d')+enddate.strftime('-T%Y%m%d') \
     +datetime.now().strftime('_@%Y%m%d-%H%M%S') +".csv"
 
 # webDriver起動
-chromedriver_path = config.get('environment', 'chromedriver')
-if os.path.exists(chromedriver_path):
+try:
+    chromedriver_path = config.get('environment', 'chromedriver')
     driver = webdriver.Chrome(chromedriver_path)
-else:    
+except Exception as e:
+    logger.error(e)
     logger.error("実行可能なWebDriver'"+chromedriver_path+"'が見つかりません。")
     sys.exit()
 
@@ -182,131 +392,37 @@ driver.find_element_by_name("DataSource").send_keys(config.get('siteinfo', 'cp')
 driver.find_element_by_name("LoginID").send_keys(config.get('siteinfo', 'id'))
 driver.find_element_by_name("PassWord").send_keys(config.get('siteinfo', 'pw'))
 
-# ログインボタンクリック
-driver.find_element_by_name("LOGINBUTTON").click()
+try:
+    # ログインボタンクリック
+    driver.find_element_by_name("LOGINBUTTON").click()
+    driver.find_element_by_tag_name("title")
+except:
+    logger.error('ログインに失敗しました。cp:'+config.get('siteinfo', 'cp')+' id:'+config.get('siteinfo', 'id')+' pw:'+config.get('siteinfo', 'pw'))
+    sys.exit()
 
 ####################################
-# ホーム画面 : 就業週報月報画面へ遷移
+# ホーム画面 : 指定画面へ遷移
 ####################################
 if mode == 1:
-    menuClick("就業週報月報")
+    try:
+        menuClick("就業週報月報")
+    except Exception as e:
+        logger.error('メニュークリック失敗')
+        logger.error(str(e))
+        sys.exit()
+    # 残業時間取得
+    getOverWork()
 elif mode == 2:
-    menuClick("打ち忘れﾁｪｯｸﾘｽﾄ")
-
-####################################
-# 就業週報月報画面 : 期間検索
-####################################
-#----- 就業週報月報のtdタグidルール -----
-# 各tdタグは以下のような命名規則になっている
-# grdXyw1500g-rc-{日付-1}-{列ID}
-DAILYID_F = "grdXyw1500g-rc-" # 日毎のid先頭部分
-# 列ID(列数-1)
-itemids = {
-    "法定外勤":"13",
-    "深夜残業":"15",
-    "休日勤務":"16",
-    "休日深夜":"17"
-}
-NAME = "氏名"
-CMPID = "社員番号"
-TOTALTIME = "残業合計"
-FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
-EMPTY_MARK = "----" # 稼働時間ゼロ表示
-#----------------------------------------
-logger.info('START monthlyWorkReport display')
-# フレーム指定
-driver.switch_to.parent_frame()
-frames = driver.find_elements_by_xpath("//frame")
-driver.switch_to.frame(frames[1])
-
-# 表示月、取得データを初期化
-dispmonth = 0
-rets = []
-
-while True:
-
-    # 氏名、社員番号取得
-    name = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
-    cmpid = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
-
-    # 指定日、表示月、稼働時間を初期化
-    curdate = startdate
-    wt = {}
-    wt[NAME] = name
-    wt[CMPID] = cmpid
-    for v in itemids.keys():
-        wt[v] = relativedelta()
-    wt[TOTALTIME] = relativedelta()
-
-    # 終了日まで指定日をインクリメントしながらデータ取得
-    while curdate <= enddate:
-        # 表示月を指定して月報を表示(指定日が月を跨いだ場合も)
-        if curdate.month != dispmonth:
-            dtElm = driver.find_element_by_id("CmbYM")
-            Select(dtElm).select_by_value(curdate.strftime("%Y%m"))
-            driver.find_element_by_name("srchbutton").click()
-            dispmonth = curdate.month
-            
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.XPATH, "//td[@id='" + FDATE_ID + "']"))
-            )
-
-        # 対象日の指定列のデータを取得
-        for key in itemids.keys():
-            # 対象日のtdタグのidを作成
-            tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
-            elm = driver.find_element_by_xpath("//td[@id='"+tgtid+"']")
-            workTime = elm.get_attribute("DefaultValue")
-            if workTime == EMPTY_MARK:
-                workTime = "00:00"
-            wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-            wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-
-        # 対象日のデータ取得を終えたらインクリメントして翌日へ
-        curdate += relativedelta(days=1)
-    # 対象社員の結果をリストに保存
-    rets.append(wt)
-
-    ####################################
-    # 対象社員を変更
-    ####################################
-    # 次が選択可なら次社員を選択
-    if driver.find_element_by_name("button4").is_enabled() :
-        driver.find_element_by_name("button4").click()
-    # 次が選択不可ならループ終了
-    else :
-        break
-
-####################################
-# 結果CSV出力
-####################################
-logger.info('START csv report output')
-# ファイルオープン
-with open(CSVNAME, 'w', newline='', encoding='utf_8_sig') as fp:
-    writer = csv.writer(fp, lineterminator='\r\n')
-    
-    # ヘッダ行出力
-    writer.writerow(wt.keys())
-
-    # データ行出力
-    for ret in rets: # メンバー分ループ
-        csvlist = []
-        for key in ret.keys(): # 出力項目分ループ
-            # 文字列型はそのまま出力
-            if type(ret[key]) is str:
-                csvlist.append(ret[key])
-            # 時間(relativedelta)型はHH:MM書式で出力
-            elif type(ret[key]) is relativedelta:
-                csvlist.append('{hour:02}:{min:02}'.format(
-                    hour=ret[key].hours+ret[key].days*24,min=ret[key].minutes))
-            else:
-                raise TypeError("type: "+type(ret[key]))
-
-        writer.writerow(csvlist)
-        logger.debug(csvlist)
+    try:
+        menuClick("打ち忘れﾁｪｯｸﾘｽﾄ")
+    except Exception as e:
+        logger.error('メニュークリック失敗')
+        logger.error(str(e))
+        sys.exit()
+    # 打ち忘れチェックリスト結果取得
+    checkStampMiss()
 
 # 終了処理
 driver.close()
-logger.info("Output '"+CSVNAME+"'.")
 logger.info("---- COMPLETE "+__file__+"  ----")
 exit()
