@@ -3,7 +3,7 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common import exceptions
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 import logging
@@ -12,9 +12,12 @@ import os
 import csv
 import configparser
 import traceback
+import json
 
 # configファイル名
 CONFIGFILE = 'setting.ini'
+# 社員リスト
+EMPLOYEE_LIST = 'members.json'
 
 # USAGE
 USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
@@ -25,18 +28,11 @@ logging.basicConfig(level=logging.INFO,
     format="%(asctime)s %(process)d %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# 標準出力用 -> 出力レベルを変更しようとしてもbasicConfigをDEBUGにしないと出ないためコメントアウト
-#handler1 = logging.StreamHandler()
-#handler1.setLevel(logging.INFO)
-#handler1.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-
 # ログファイル出力用
-handler2 = logging.FileHandler(filename=__file__ + ".log")
-handler2.setLevel(logging.DEBUG)
-handler2.setFormatter(logging.Formatter("%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"))
-
-#logger.addHandler(handler1)
-logger.addHandler(handler2)
+handler = logging.FileHandler(filename=__file__ + ".log")
+handler.setLevel(logging.INFO)
+handler.setFormatter(logging.Formatter("%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"))
+logger.addHandler(handler)
 
 logger.info("---- START "+__file__+" ----")
 
@@ -103,16 +99,16 @@ def menuClick(titleStr):
         # リンククリック
         driver.find_element_by_xpath("//a[@title='" + titleStr + "']").click()
 
-    except NoSuchElementException as e :
+    except exceptions.NoSuchElementException as e :
         logger.error("function menuClick: " + str(e))
         raise (e)
     else:
         return True
 
+####################################
+# 就業週報月報画面 : 期間検索
+####################################
 def getOverWork():
-    ####################################
-    # 就業週報月報画面 : 期間検索
-    ####################################
     #----- 就業週報月報のtdタグidルール -----
     # 各tdタグは以下のような命名規則になっている
     # grdXyw1500g-rc-{日付-1}-{列ID}
@@ -130,7 +126,7 @@ def getOverWork():
     FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
     EMPTY_MARK = "----" # 稼働時間ゼロ表示
     #----------------------------------------
-    logger.info('START monthlyWorkReport display')
+    logger.info('START function getOverWork')
     # フレーム指定
     driver.switch_to.parent_frame()
     frames = driver.find_elements_by_xpath("//frame")
@@ -181,6 +177,11 @@ def getOverWork():
 
             # 対象日のデータ取得を終えたらインクリメントして翌日へ
             curdate += relativedelta(days=1)
+        # reletivedelta型をHH:MM型の文字列に変換
+        for key in wt.keys():
+            if type(wt[key]) is relativedelta:
+                wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
+
         # 対象社員の結果をリストに保存
         rets.append(wt)
 
@@ -193,35 +194,25 @@ def getOverWork():
         # 次が選択不可ならループ終了
         else :
             break
+    return rets
 
-    ####################################
-    # 結果CSV出力
-    ####################################
-    logger.info('START csv report output')
+####################################
+# 結果CSV出力
+####################################
+def csvOutput(rets,fpath):
+    logger.info('START function csvOutput')
     # ファイルオープン
-    with open(CSVNAME, 'w', newline='', encoding='utf_8_sig') as fp:
+    with open(fpath, 'w', newline='', encoding='utf_8_sig') as fp:
         writer = csv.writer(fp, lineterminator='\r\n')
-        
-        # ヘッダ行出力
-        writer.writerow(wt.keys())
+        headerFlg = 0
 
         # データ行出力
-        for ret in rets: # メンバー分ループ
-            csvlist = []
-            for key in ret.keys(): # 出力項目分ループ
-                # 文字列型はそのまま出力
-                if type(ret[key]) is str:
-                    csvlist.append(ret[key])
-                # 時間(relativedelta)型はHH:MM書式で出力
-                elif type(ret[key]) is relativedelta:
-                    csvlist.append('{hour:02}:{min:02}'.format(
-                        hour=ret[key].hours+ret[key].days*24,min=ret[key].minutes))
-                else:
-                    raise TypeError("type: "+type(ret[key]))
-
-            writer.writerow(csvlist)
-            logger.debug(csvlist)
-        logger.info("Output '"+CSVNAME+"'.")
+        for ret in rets:
+            if headerFlg == 0:
+                writer.writerow(ret.keys())
+                headerFlg = 1
+            writer.writerow(ret.values())
+        logger.info("Output '"+fpath+"'.")
 
 def checkStampMiss():
     logger.info('START function checkStampMiss')
@@ -254,6 +245,16 @@ def checkStampMiss():
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
 
+        # 期間指定
+        startYMD = driver.find_element_by_name('StartYMD')
+        endYMD = driver.find_element_by_name('EndYMD')
+        if startYMD.get_attribute('value') != startdate.strftime('%Y%m%d'):
+            startYMD.clear()
+            startYMD.send_keys(startdate.strftime('%Y%m%d'))
+            endYMD.clear()
+            endYMD.send_keys(enddate.strftime('%Y%m%d'))
+            driver.find_element_by_name('srchbutton').click()
+        
         # テーブルのデータ取得
         # テーブル要素のid構成を利用して取得
         # テーブル行数 : row(１行目:0, 2行目:1, ...)
@@ -282,22 +283,12 @@ def checkStampMiss():
             rowid = TRIDBASE + str(row)
             try:
                 driver.find_element_by_id(rowid)
-            except NoSuchElementException as e :
-#            except selenium.common.exceptions.NoSuchElementException as e :
+            except exceptions.NoSuchElementException as e :
                 logging.info('最終行到達')
                 break
             except Exception as e :
                 logging.error('想定外の例外エラー発生')
                 logging.error(e)
-                error_type, error_value, error_traceback = sys.exc_info()
-                traceback_list = traceback.format_tb(error_traceback)
-                
-                logging.error('---------------------')
-                print(error_type)
-                logging.error('---------------------')
-                print(error_value)
-                logging.error('---------------------')
-                print(traceback_list)
                 raise
 
             # 要素取得
@@ -305,39 +296,137 @@ def checkStampMiss():
                 targetid = TDIDBASE + str(row) + '-' + itemids[key]
                 ret[key] = driver.find_element_by_id(targetid).text
 
+            # 次行にインクリメント
             logging.info(ret)
+            rets.append(ret)
             row += 1
+
+        return(rets)
 
     except Exception as e:
         logger.error(e)
         raise
 
 ####################################
-# 初期処理
+# メール送信
+####################################
+def sendResultMail(rets, mailsub, mailstr, attaches):
+    """
+    Overview
+        結果をメールで送信する
+    Args
+        rets: 社員番号キーを持つ辞書型オブジェクトのリスト
+        mailsub: メール件名
+        mailstr: メール本文の先頭文章。
+        attaches: 添付ファイルパス
+    Return
+        なし
+    """
+    from email import message
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from os.path import basename
+    from email.header import Header
+    from email.utils import formatdate
+    from email import encoders
+
+    logger.info('START function sendResultMail')
+    # Gmail SMTP設定
+    smtp_host = config.get('mail', 'smtp_host')
+    smtp_port = config.get('mail', 'smtp_port')
+    username = config.get('mail', 'username')
+    password = config.get('mail', 'password')
+
+    from_addr = 'noreply@gmail.com'
+
+    # body初期化
+    mail_body = ''
+
+    for ret in rets:
+        # タイトル行出力
+        if mail_body == '':
+            mail_body = ','.join(ret.keys())
+        mail_body = mail_body + '\r\n' + ','.join(ret.values())
+    mail_body = mailstr + mail_body
+
+    # メンバーのjsonファイル読み込み
+    with open(EMPLOYEE_LIST,'r',encoding='utf-8') as f:
+        members = json.load(f)
+
+        # 宛先設定
+        mail_to = []
+        mail_cc = []
+        for ret in rets:
+            selfmail = members[str(int(ret['社員番号']))]['mail']
+            if selfmail not in mail_to:
+                mail_to.append(selfmail)
+            bossid = members[str(int(ret['社員番号']))]['boss']
+            bossmail = members[bossid]['mail']
+            if bossmail not in mail_cc:
+                mail_cc.append(bossmail)
+
+    # メールの内容を作成
+    if attaches:
+        mime = MIMEMultipart()
+        mime.attach(MIMEText(_text=mail_body, _subtype='plain', _charset='utf-8'))
+    else:
+        mime = MIMEText(_text=mail_body, _subtype='plain', _charset='utf-8')
+
+    mime['Subject'] = Header(mailsub, 'utf-8')
+    mime['From'] = from_addr
+    mime['To'] = ','.join(mail_to)
+    mime['Cc'] = ','.join(mail_cc)
+    mime['Date'] = formatdate()
+    
+    # ファイル添付
+    if attaches:
+        for attach in attaches:
+            logger.info('attach file name {}'.format(attach))
+            attachment = MIMEBase('application', 'csv')
+            with open(attach, mode='rb') as f:
+                attachment.set_payload(f.read())
+            encoders.encode_base64(attachment)
+            attachment.add_header("Content-Disposition","attachment", filename=basename(attach))
+            mime.attach(attachment)
+
+    # メールサーバーへアクセス
+    smtp = smtplib.SMTP(smtp_host, smtp_port)
+    smtp.ehlo()
+    smtp.starttls()
+    smtp.ehlo()
+    smtp.login(username, password)
+    # メール送信
+    smtp.sendmail(from_addr, mail_to + mail_cc, mime.as_string())
+    smtp.quit()
+
+####################################
+# main
 ####################################
 # 引数チェック
 logger.info('START input parameter check')
 args = sys.argv
 try:
     # 引数4個
-    if len(args) == 4 +1:
+    if len(args)-1 == 4:
         nowDate = date(int(args[2]), int(args[3]), int(args[4]))
     # 引数1個
-    elif len(args) == 1 +1:
+    elif len(args)-1 == 1:
         nowDate = date.today()
     else :
         raise SyntaxError
     
 except SyntaxError as e:
-    logger.error(e)
     logger.error(USAGE)
     logger.error("引数は1個または4個のみ設定可能です。")
+    logger.error(e)
     sys.exit()
 
 except ValueError as e:
-    logger.error(e)
     logger.error(USAGE)
     logger.error("引数は年月日に適した数値のみ設定可能です。")
+    logger.error(e)
     sys.exit()
 
 try:
@@ -346,9 +435,9 @@ try:
         raise ValueError
 
 except ValueError as e:
-    logger.error(e)
     logger.error(USAGE)
     logger.error("modeは1または2のみ設定可能です。")
+    logger.error(e)
     sys.exit()
 
 # config読み込み
@@ -357,6 +446,7 @@ try:
     config.read(CONFIGFILE)
 except Exception as e:
     logger.error('configファイル"'+CONFIGFILE+'"が見つかりません。')
+    logger.error(e)
     sys.exit()
 
 # 開始日、終了日を取得
@@ -372,8 +462,8 @@ try:
     chromedriver_path = config.get('environment', 'chromedriver')
     driver = webdriver.Chrome(chromedriver_path)
 except Exception as e:
-    logger.error(e)
     logger.error("実行可能なWebDriver'"+chromedriver_path+"'が見つかりません。")
+    logger.error(e)
     sys.exit()
 
 ####################################
@@ -383,9 +473,14 @@ logger.info('START login')
 driver.get(config.get('siteinfo', 'url'))
 
 # 表示待ち
-WebDriverWait(driver, 10).until(
-    EC.presence_of_all_elements_located((By.NAME, "DataSource"))
-)
+try:
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_all_elements_located((By.NAME, "DataSource"))
+    )
+except exceptions.TimeoutException as e:
+    logger.error('画面表示タイムアウトエラー')
+    logger.error(e)
+    sys.exit()
 
 # ID/PW入力
 driver.find_element_by_name("DataSource").send_keys(config.get('siteinfo', 'cp'))
@@ -396,8 +491,9 @@ try:
     # ログインボタンクリック
     driver.find_element_by_name("LOGINBUTTON").click()
     driver.find_element_by_tag_name("title")
-except:
+except exceptions.NoSuchElementException as e:
     logger.error('ログインに失敗しました。cp:'+config.get('siteinfo', 'cp')+' id:'+config.get('siteinfo', 'id')+' pw:'+config.get('siteinfo', 'pw'))
+    logger.error(e)
     sys.exit()
 
 ####################################
@@ -411,7 +507,15 @@ if mode == 1:
         logger.error(str(e))
         sys.exit()
     # 残業時間取得
-    getOverWork()
+    rets = getOverWork()
+    # 結果をメール送信
+    if len(rets) > 0:
+        csvOutput(rets,CSVNAME)
+        sendResultMail(rets,
+            '残業時間チェック結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
+            '残業時間をチェックしました。\n対象者は稼働状況の見直しを行ってください。\n\n',
+            [CSVNAME])
+
 elif mode == 2:
     try:
         menuClick("打ち忘れﾁｪｯｸﾘｽﾄ")
@@ -420,7 +524,13 @@ elif mode == 2:
         logger.error(str(e))
         sys.exit()
     # 打ち忘れチェックリスト結果取得
-    checkStampMiss()
+    rets = checkStampMiss()
+    # 結果をメール送信
+    if len(rets) > 0:
+        sendResultMail(rets,
+            '打ち忘れチェックリスト確認結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
+            '打ち忘れチェックリスト確認結果を連絡します。\n対象者は早めに必要な申請を行ってください。\n\n',
+            False)
 
 # 終了処理
 driver.close()
