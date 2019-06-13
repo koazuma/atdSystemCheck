@@ -472,6 +472,11 @@ except Exception as e:
 logger.info('START login')
 driver.get(config.get('siteinfo', 'url'))
 
+# メンテナンス中
+if driver.title == 'sorry page':
+    logger.error('サーバメンテナンス中により処理中止')
+    sys.exit()
+
 # 表示待ち
 try:
     WebDriverWait(driver, 10).until(
