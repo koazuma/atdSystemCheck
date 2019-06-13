@@ -231,6 +231,17 @@ def checkStampMiss():
         # フレーム指定
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
+
+        # フレーム内描画待ち(タイムアウトが多いため追加)
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.ID, 'AllSel'))
+            )
+        except exceptions.TimeoutException as e:
+            logger.error('画面表示タイムアウトエラー')
+            logger.error(e)
+            sys.exit()
+    
         # 全選択ラジオボタンクリック
         driver.find_element_by_id('AllSel').click()
         # 確定ボタンクリック
