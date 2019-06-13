@@ -15,9 +15,9 @@ import traceback
 import json
 
 # configファイル名
-CONFIGFILE = 'setting.ini'
+CONFIGFILE = os.path.join(os.path.dirname(__file__), 'setting.ini')
 # 社員リスト
-EMPLOYEE_LIST = 'members.json'
+EMPLOYEE_LIST = os.path.join(os.path.dirname(__file__), 'members.json')
 
 # USAGE
 USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
