@@ -14,10 +14,12 @@ import configparser
 import traceback
 import json
 
+# scriptフォルダ
+parentdir = os.path.dirname(__file__)
 # configファイル名
-CONFIGFILE = os.path.join(os.path.dirname(__file__), 'setting.ini')
+CONFIGFILE = os.path.join(parentdir, 'setting.ini')
 # 社員リスト
-EMPLOYEE_LIST = os.path.join(os.path.dirname(__file__), 'members.json')
+EMPLOYEE_LIST = os.path.join(parentdir, 'members.json')
 
 # USAGE
 USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
@@ -467,6 +469,7 @@ logger.info("collectionTerm: "+str(startdate)+" - "+str(enddate))
 # 結果CSVファイル名セット
 CSVNAME = "OverWork"+startdate.strftime('_F%Y%m%d')+enddate.strftime('-T%Y%m%d') \
     +datetime.now().strftime('_@%Y%m%d-%H%M%S') +".csv"
+CSVNAME = os.path.join(parentdir, CSVNAME)
 
 # webDriver起動
 try:
