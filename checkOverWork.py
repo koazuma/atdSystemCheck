@@ -20,6 +20,8 @@ parentdir = os.path.dirname(__file__)
 CONFIGFILE = os.path.join(parentdir, 'setting.ini')
 # 社員リスト
 EMPLOYEE_LIST = os.path.join(parentdir, 'members.json')
+# 残業時間閾値(H)
+OVERWORK_THRESHOLD = 25
 
 # USAGE
 USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
@@ -125,6 +127,7 @@ def getOverWork():
     NAME = "氏名"
     CMPID = "社員番号"
     TOTALTIME = "残業合計"
+    WORKDAYS = "出勤日数"
     FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
     EMPTY_MARK = "----" # 稼働時間ゼロ表示
     #----------------------------------------
@@ -152,6 +155,7 @@ def getOverWork():
         for v in itemids.keys():
             wt[v] = relativedelta()
         wt[TOTALTIME] = relativedelta()
+        wt[WORKDAYS] = 0
 
         # 終了日まで指定日をインクリメントしながらデータ取得
         while curdate <= enddate:
@@ -174,6 +178,8 @@ def getOverWork():
                 workTime = elm.get_attribute("DefaultValue")
                 if workTime == EMPTY_MARK:
                     workTime = "00:00"
+                else:
+                    wt[WORKDAYS] += 1
                 wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
                 wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
 
@@ -183,9 +189,11 @@ def getOverWork():
         for key in wt.keys():
             if type(wt[key]) is relativedelta:
                 wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
-
-        # 対象社員の結果をリストに保存
-        rets.append(wt)
+        # 出勤日数をstring型に変換
+        wt[WORKDAYS] = str(wt[WORKDAYS])
+        # 合計時間が閾値より大きい場合、対象社員の結果をリストに保存
+        if int(wt[TOTALTIME].split(":")[0]) >= OVERWORK_THRESHOLD:
+            rets.append(wt)
 
         ####################################
         # 対象社員を変更
@@ -202,6 +210,15 @@ def getOverWork():
 # 結果CSV出力
 ####################################
 def csvOutput(rets,fpath):
+    """
+    Overview
+        連想配列をcsvファイルに出力する。
+    Args
+        rets: 出力対象の連想配列
+        fpath: 出力ファイルパス
+    Return
+        なし
+    """
     logger.info('START function csvOutput')
     # ファイルオープン
     with open(fpath, 'w', newline='', encoding='utf_8_sig') as fp:
@@ -216,7 +233,18 @@ def csvOutput(rets,fpath):
             writer.writerow(ret.values())
         logger.info("Output '"+fpath+"'.")
 
+####################################
+# 打ち忘れチェックリスト取得
+####################################
 def checkStampMiss():
+    """
+    Overview
+        打ち忘れチェックリスト取得
+    Args
+        なし
+    Return
+        打ち忘れチェックリストの社員番号、氏名、対象日、メッセージ項目1の連想配列
+    """
     logger.info('START function checkStampMiss')
     try:
         # フレーム指定
@@ -321,6 +349,29 @@ def checkStampMiss():
         raise
 
 ####################################
+# 上長のメールアドレス追加
+####################################
+def addBossMailRecursive(id, mail, members):
+    """
+    Overview
+        指定idの社員番号の上司、さらにその上司、、、と配列に追加
+    Args
+        id(string): 社員番号
+        mail(array): メールアドレス
+        members(dictionary): 社員情報
+    Return
+        mail(array): メールアドレス配列 
+    """
+    bossids = members[id]['boss'].split(',')
+    for bossid in bossids:
+        bossmail = members[bossid]['mail']
+        if bossmail not in mail:
+            mail.append(bossmail)
+        if members[bossid]['boss'] != "":
+            addBossMailRecursive(bossid, mail, members)
+    return mail
+
+####################################
 # メール送信
 ####################################
 def sendResultMail(rets, mailsub, mailstr, attaches):
@@ -360,8 +411,8 @@ def sendResultMail(rets, mailsub, mailstr, attaches):
     for ret in rets:
         # タイトル行出力
         if mail_body == '':
-            mail_body = ','.join(ret.keys())
-        mail_body = mail_body + '\r\n' + ','.join(ret.values())
+            mail_body = '\t'.join(ret.keys())
+        mail_body = mail_body + '\r\n' + '\t'.join(ret.values())
     mail_body = mailstr + mail_body
 
     # メンバーのjsonファイル読み込み
@@ -375,10 +426,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches):
             selfmail = members[str(int(ret['社員番号']))]['mail']
             if selfmail not in mail_to:
                 mail_to.append(selfmail)
-            bossid = members[str(int(ret['社員番号']))]['boss']
-            bossmail = members[bossid]['mail']
-            if bossmail not in mail_cc:
-                mail_cc.append(bossmail)
+            mail_cc = addBossMailRecursive(str(int(ret['社員番号'])), mail_cc, members)
 
     # メールの内容を作成
     if attaches:
@@ -404,7 +452,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches):
             attachment.add_header("Content-Disposition","attachment", filename=basename(attach))
             mime.attach(attachment)
 
-    # メールサーバーへアクセス
+    # メールサーバー認証
     smtp = smtplib.SMTP(smtp_host, smtp_port)
     smtp.ehlo()
     smtp.starttls()
@@ -532,7 +580,7 @@ if mode == 1:
         csvOutput(rets,CSVNAME)
         sendResultMail(rets,
             '残業時間チェック結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
-            '残業時間をチェックしました。\n対象者は稼働状況の見直しを行ってください。\n\n',
+            '残業時間が'+str(OVERWORK_THRESHOLD)+'Hを超過しています。\n対象者は45Hを超えないよう、計画的に稼働してください。\n\n',
             [CSVNAME])
 
 elif mode == 2:
