@@ -3,6 +3,7 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.alert import Alert
 from selenium.common import exceptions
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
@@ -143,64 +144,81 @@ def getOverWork():
 
     while True:
 
-        # 氏名、社員番号取得
-        name = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
-        cmpid = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
+        try:
+            # 氏名、社員番号取得
+            name = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
+            cmpid = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
 
-        # 指定日、表示月、稼働時間を初期化
-        curdate = startdate
-        wt = {}
-        wt[NAME] = name
-        wt[CMPID] = cmpid
-        for v in itemids.keys():
-            wt[v] = relativedelta()
-        wt[TOTALTIME] = relativedelta()
-        wt[WORKDAYS] = 0
+            # 指定日、表示月、稼働時間を初期化
+            curdate = startdate
+            wt = {}
+            wt[NAME] = name
+            wt[CMPID] = cmpid
+            for v in itemids.keys():
+                wt[v] = relativedelta()
+            wt[TOTALTIME] = relativedelta()
+            wt[WORKDAYS] = 0
 
-        # 終了日まで指定日をインクリメントしながらデータ取得
-        while curdate <= enddate:
-            # 月を指定して月報を表示(初回および月が変わった時のみ)
-            if curdate.month != dispmonth:
-                dtElm = driver.find_element_by_id("CmbYM")
-                Select(dtElm).select_by_value(curdate.strftime("%Y%m"))
-                driver.find_element_by_name("srchbutton").click()
-                dispmonth = curdate.month
-                
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_all_elements_located((By.XPATH, "//td[@id='" + FDATE_ID + "']"))
-                )
+            # 終了日まで指定日をインクリメントしながらデータ取得
+            while curdate <= enddate:
+                # 月を指定して月報を表示(初回および月が変わった時のみ)
+                if curdate.month != dispmonth:
+                    dtElm = driver.find_element_by_id("CmbYM")
+                    Select(dtElm).select_by_value(curdate.strftime("%Y%m"))
+                    driver.find_element_by_name("srchbutton").click()
+                    dispmonth = curdate.month
+                    
+                    try:
+                        WebDriverWait(driver, 10).until(
+                            EC.presence_of_all_elements_located((By.XPATH, "//td[@id='" + FDATE_ID + "']"))
+                        )
+                    except exceptions.TimeoutException as e:
+                        logger.error('画面表示タイムアウトエラー')
+                        logger.error(e)
+                        raise(e)
+                    except exceptions.UnexpectedAlertPresentException as e:
+                        logger.warning('該当者不在のためスキップ')
+                        #logger.warning(e)
+                        Alert(driver).accept()
+                        break
+                    
 
-            # 対象日の指定列のデータを取得
-            for key in itemids.keys():
-                # 対象日のtdタグのidを作成
-                tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
-                elm = driver.find_element_by_xpath("//td[@id='"+tgtid+"']")
-                workTime = elm.get_attribute("DefaultValue")
-                if workTime == EMPTY_MARK:
-                    workTime = "00:00"
-                else:
-                    wt[WORKDAYS] += 1
-                wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-                wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+                # 対象日の指定列のデータを取得
+                for key in itemids.keys():
+                    # 対象日のtdタグのidを作成
+                    tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
+                    elm = driver.find_element_by_xpath("//td[@id='"+tgtid+"']")
+                    workTime = elm.get_attribute("DefaultValue")
+                    if workTime == EMPTY_MARK:
+                        workTime = "00:00"
+                    else:
+                        wt[WORKDAYS] += 1
+                    wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+                    wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
 
-            # 対象日のデータ取得を終えたらインクリメントして翌日へ
-            curdate += relativedelta(days=1)
-        # reletivedelta型をHH:MM型の文字列に変換
-        for key in wt.keys():
-            if type(wt[key]) is relativedelta:
-                wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
-        # 出勤日数をstring型に変換
-        wt[WORKDAYS] = str(wt[WORKDAYS])
-        # 合計時間が閾値より大きい場合、対象社員の結果をリストに保存
-        if int(wt[TOTALTIME].split(":")[0]) >= OVERWORK_THRESHOLD:
-            rets.append(wt)
+                # 対象日のデータ取得を終えたらインクリメントして翌日へ
+                curdate += relativedelta(days=1)
+            # reletivedelta型をHH:MM型の文字列に変換
+            for key in wt.keys():
+                if type(wt[key]) is relativedelta:
+                    wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
+            # 出勤日数をstring型に変換
+            wt[WORKDAYS] = str(wt[WORKDAYS])
+            # 合計時間が閾値より大きい場合、対象社員の結果をリストに保存
+            if int(wt[TOTALTIME].split(":")[0]) >= OVERWORK_THRESHOLD:
+                rets.append(wt)
+
+        except exceptions.UnexpectedAlertPresentException as e:
+            logger.warning('該当者不在のためスキップ')
+            Alert(driver).accept()
 
         ####################################
         # 対象社員を変更
         ####################################
         # 次が選択可なら次社員を選択
-        if driver.find_element_by_name("button4").is_enabled() :
-            driver.find_element_by_name("button4").click()
+        tgtname = "button4"
+        if driver.find_element_by_name(tgtname).is_enabled() :
+            driver.find_element_by_name(tgtname).click()
         # 次が選択不可ならループ終了
         else :
             break
