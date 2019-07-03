@@ -23,11 +23,6 @@ CONFIGFILE = os.path.join(parentdir, 'setting.ini')
 EMPLOYEE_LIST = os.path.join(parentdir, 'members.json')
 # 残業時間閾値(H)
 OVERWORK_THRESHOLD = 25
-# メール通知エスカレーションレベル(上限なし:-1 本人まで:0 直上長まで:1 ...)
-# 残業時間チェック
-MAIL_ESC_OVERWORK = -1
-# 打ち忘れチェック
-MAIL_ESC_STAMPMISS = 1
 
 # USAGE
 USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
@@ -374,7 +369,7 @@ def checkStampMiss():
 ####################################
 # 上長のメールアドレス追加
 ####################################
-def addBossMailRecursive(id, mail, members, levels, depth=0):
+def addBossMailRecursive(id, mail, members):
     """
     Overview
         指定idの社員番号の上司、さらにその上司、、、と配列に追加
@@ -382,25 +377,22 @@ def addBossMailRecursive(id, mail, members, levels, depth=0):
         id(string): 社員番号
         mail(array): メールアドレス
         members(dictionary): 社員情報
-        levels(int): エスカレーション階層(-1:無限)
-        depth(int): 現在エスカレーション階層
     Return
         mail(array): メールアドレス配列 
     """
-    if levels != depth:
-        bossids = members[id]['boss'].split(',')
-        for bossid in bossids:
-            bossmail = members[bossid]['mail']
-            if bossmail not in mail:
-                mail.append(bossmail)
-            if members[bossid]['boss'] != "":
-                addBossMailRecursive(bossid, mail, members, levels, depth +1)
+    bossids = members[id]['boss'].split(',')
+    for bossid in bossids:
+        bossmail = members[bossid]['mail']
+        if bossmail not in mail:
+            mail.append(bossmail)
+        if members[bossid]['boss'] != "":
+            addBossMailRecursive(bossid, mail, members)
     return mail
 
 ####################################
 # メール送信
 ####################################
-def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
+def sendResultMail(rets, mailsub, mailstr, attaches):
     """
     Overview
         結果をメールで送信する
@@ -409,7 +401,6 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
         mailsub: メール件名
         mailstr: メール本文の先頭文章。
         attaches: 添付ファイルパス
-        levels: メール通知のエスカレーションレベル(-1は無限(デフォルト))
     Return
         なし
     """
@@ -453,7 +444,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
             selfmail = members[str(int(ret['社員番号']))]['mail']
             if selfmail not in mail_to:
                 mail_to.append(selfmail)
-            mail_cc = addBossMailRecursive(str(int(ret['社員番号'])), mail_cc, members, levels)
+            mail_cc = addBossMailRecursive(str(int(ret['社員番号'])), mail_cc, members)
 
     # メールの内容を作成
     if attaches:
@@ -604,13 +595,11 @@ if mode == 1:
     rets = getOverWork()
     # 結果をメール送信
     if len(rets) > 0:
-        #csvOutput(rets,CSVNAME)
+        csvOutput(rets,CSVNAME)
         sendResultMail(rets,
             '残業時間チェック結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
-            '残業時間'+str(OVERWORK_THRESHOLD)+'H超過対象者およびその上長への通知です。\n対象者は45Hを超えないよう、計画的に稼働してください。\n\n',
-            #[CSVNAME],
-            False,
-            MAIL_ESC_OVERWORK)
+            '残業時間が'+str(OVERWORK_THRESHOLD)+'Hを超過しています。\n対象者は45Hを超えないよう、計画的に稼働してください。\n\n',
+            [CSVNAME])
 
 elif mode == 2:
     try:
@@ -625,9 +614,8 @@ elif mode == 2:
     if len(rets) > 0:
         sendResultMail(rets,
             '打ち忘れチェックリスト確認結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
-            '打ち忘れチェックリスト確認結果を連絡します。\n対象者は速やかに必要な申請を行ってください。\n\n',
-            False,
-            MAIL_ESC_STAMPMISS)
+            '打ち忘れチェックリスト確認結果を連絡します。\n対象者は早めに必要な申請を行ってください。\n\n',
+            False)
 
 # 終了処理
 driver.close()
