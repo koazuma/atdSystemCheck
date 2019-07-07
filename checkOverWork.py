@@ -212,6 +212,7 @@ def getOverWork():
             # 合計時間が閾値より大きい場合、対象社員の結果をリストに保存
             if int(wt[TOTALTIME].split(":")[0]) >= OVERWORK_THRESHOLD:
                 rets.append(wt)
+                logger.info(wt)
 
         except exceptions.UnexpectedAlertPresentException as e:
             logger.warning('該当者不在のためスキップ')
