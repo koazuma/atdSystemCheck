@@ -505,7 +505,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
 argparser = argparse.ArgumentParser()
 argparser.add_argument('-m', '--mode', type=int, choices=[1,2], help='実行モード 1:残業時間チェック 2:打ち忘れチェック', required=True)
 argparser.add_argument('-d', '--date', type=lambda s: datetime.strptime(s, '%Y%m%d'), help='yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。')
-argparser.add_argument('-e', '--exholiday', action='store_true', help='土日(祝日)の場合は何もせず終了する。')
+argparser.add_argument('-e', '--exholiday', action='store_true', help='土日祝日の場合はチェックをしない。')
 
 # 引数パース
 args = argparser.parse_args()
