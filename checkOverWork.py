@@ -14,6 +14,7 @@ import csv
 import configparser
 import traceback
 import json
+import argparse
 
 # scriptフォルダ
 parentdir = os.path.dirname(__file__)
@@ -28,10 +29,6 @@ OVERWORK_THRESHOLD = 25
 MAIL_ESC_OVERWORK = -1
 # 打ち忘れチェック
 MAIL_ESC_STAMPMISS = 1
-
-# USAGE
-USAGE = "Usage: " + sys.argv[0] + " mode [ yyyy mm dd ]\n" \
-        " - mode : 1(overwork check) or 2(stamp miss check)"
 
 # log設定
 logging.basicConfig(level=logging.INFO,
@@ -504,41 +501,30 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
 ####################################
 # main
 ####################################
-# 引数チェック
-logger.info('START input parameter check')
-args = sys.argv
-try:
-    # 引数4個
-    if len(args)-1 == 4:
-        nowDate = date(int(args[2]), int(args[3]), int(args[4]))
-    # 引数1個
-    elif len(args)-1 == 1:
-        nowDate = date.today()
-    else :
-        raise SyntaxError
-    
-except SyntaxError as e:
-    logger.error(USAGE)
-    logger.error("引数は1個または4個のみ設定可能です。")
-    logger.error(e)
-    sys.exit()
+# コマンドライン引数定義
+argparser = argparse.ArgumentParser()
+argparser.add_argument('-m', '--mode', type=int, choices=[1,2], help='実行モード 1:残業時間チェック 2:打ち忘れチェック', required=True)
+argparser.add_argument('-d', '--date', type=lambda s: datetime.strptime(s, '%Y%m%d'), help='yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。')
+argparser.add_argument('-e', '--exholiday', action='store_true', help='土日(祝日)の場合は何もせず終了する。')
 
-except ValueError as e:
-    logger.error(USAGE)
-    logger.error("引数は年月日に適した数値のみ設定可能です。")
-    logger.error(e)
-    sys.exit()
+# 引数パース
+args = argparser.parse_args()
 
-try:
-    mode = int(args[1])
-    if not (mode == 1 or mode == 2):
-        raise ValueError
+# 実行モード
+mode = args.mode
+# 指定日付(未指定時は当日)
+if args.date:
+    nowDate = date(args.date.year, args.date.month, args.date.day)
+else:
+    nowDate = date.today()
 
-except ValueError as e:
-    logger.error(USAGE)
-    logger.error("modeは1または2のみ設定可能です。")
-    logger.error(e)
-    sys.exit()
+# 休日未実行設定の場合は休日判定
+if args.exholiday:
+    from japan_holiday import JapanHoliday
+    jpholiday = JapanHoliday(path=os.path.join(parentdir, 'syukujitsu.csv'))
+    if jpholiday.is_holiday(nowDate.strftime('%Y-%m-%d')):
+        logger.info('End halfway, because of holiday.')
+        sys.exit()
 
 # config読み込み
 try:
