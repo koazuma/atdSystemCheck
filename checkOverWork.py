@@ -391,11 +391,15 @@ def addBossMailRecursive(id, mail, members, levels, depth=0):
     if levels != depth:
         bossids = members[id]['boss'].split(',')
         for bossid in bossids:
-            bossmail = members[bossid]['mail']
-            if bossmail not in mail:
-                mail.append(bossmail)
-            if members[bossid]['boss'] != "":
-                addBossMailRecursive(bossid, mail, members, levels, depth +1)
+            if bossid in members:
+                bossmail = members[bossid]['mail']
+                if bossmail not in mail:
+                    mail.append(bossmail)
+                if members[bossid]['boss'] != "":
+                    addBossMailRecursive(bossid, mail, members, levels, depth +1)
+            else:
+                # memers.jsonにいない場合
+                logger.error('Not found cmpcode: ' + cmpcode + ' in members.')
     return mail
 
 ####################################
@@ -451,10 +455,17 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
         mail_to = []
         mail_cc = []
         for ret in rets:
-            selfmail = members[str(int(ret['社員番号']))]['mail']
-            if selfmail not in mail_to:
-                mail_to.append(selfmail)
-            mail_cc = addBossMailRecursive(str(int(ret['社員番号'])), mail_cc, members, levels)
+            cmpcode = str(int(ret['社員番号']))
+            # TO設定
+            if cmpcode in members:
+                selfmail = members[cmpcode]['mail']
+                if selfmail not in mail_to:
+                    mail_to.append(selfmail)
+            else:
+                # memers.jsonにいない場合
+                logger.error('Not found cmpcode: ' + cmpcode + ' in members.')
+            # CC設定
+            mail_cc = addBossMailRecursive(cmpcode, mail_cc, members, levels)
 
     # メールの内容を作成
     if attaches:
