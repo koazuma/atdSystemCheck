@@ -512,17 +512,17 @@ args = argparser.parse_args()
 
 # 実行モード
 mode = args.mode
-# 指定日付(未指定時は当日)
+# 指定日付(未指定時は前日)
 if args.date:
     nowDate = date(args.date.year, args.date.month, args.date.day)
 else:
-    nowDate = date.today()
+    nowDate = date.today() - relativedelta(days=1)
 
 # 休日未実行設定の場合は休日判定
 if args.exholiday:
     from japan_holiday import JapanHoliday
     jpholiday = JapanHoliday(path=os.path.join(parentdir, 'syukujitsu.csv'))
-    if jpholiday.is_holiday(nowDate.strftime('%Y-%m-%d')):
+    if jpholiday.is_holiday(date.today().strftime('%Y-%m-%d')):
         logger.info('End halfway, because of holiday.')
         sys.exit()
 
