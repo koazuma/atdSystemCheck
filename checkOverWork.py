@@ -497,6 +497,37 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
     smtp.quit()
 
 ####################################
+# 休日判定
+####################################
+def isHoliday(targetDate, syukujitsuPath):
+    """
+    Overview
+        結果をメールで送信する
+    Args
+        targetDate(date): 判定対象日
+        syukujitsuPath(string): 国土交通省発行のsyukujitsu.csvの格納パス
+    Return
+        retTrue: 祝休日 False: 非休日
+    Raises:
+        TypeError: targetDateがdate型でない場合に発生
+    """
+    try:
+        ret = False
+        if targetDate.weekday() == 5 or targetDate.weekday() == 6:
+            ret = True
+        else:
+            from japan_holiday import JapanHoliday
+            jpholiday = JapanHoliday(path=syukujitsuPath)
+            if jpholiday.is_holiday(targetDate.strftime('%Y-%m-%d')):
+                ret = True
+    
+    except TypeError as e :
+        logger.error("function isHoliday: " + str(e))
+        raise (e)
+    else:
+        return ret
+    
+####################################
 # main
 ####################################
 # コマンドライン引数定義
@@ -517,12 +548,9 @@ else:
     nowDate = date.today() - relativedelta(days=1)
 
 # 休日未実行設定の場合は休日判定
-if args.exholiday:
-    from japan_holiday import JapanHoliday
-    jpholiday = JapanHoliday(path=os.path.join(parentdir, 'syukujitsu.csv'))
-    if jpholiday.is_holiday(date.today().strftime('%Y-%m-%d')):
-        logger.info('End halfway, because of holiday.')
-        sys.exit()
+if args.exholiday and isHoliday(date.today(), os.path.join(parentdir, 'syukujitsu.csv')):
+    logger.info('End halfway, because of holiday.')
+    sys.exit()
 
 # config読み込み
 try:
