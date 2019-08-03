@@ -60,12 +60,12 @@ def getSpan(nowDate, type):
 
     try:
         # 締め期間ルール設定
-        if type == 1:
+        if type == 1 or type == 3:
             FROM_DAY = 21
         elif type == 2:
             FROM_DAY = 1
         else:
-            logger.error("function getSpan: input type is nether 1 nor 2")
+            logger.error("function getSpan: input type is not 1,2,3")
             raise ValueError
 
         # 当月開始日より前
@@ -206,11 +206,9 @@ def getOverWork():
                     wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
             # 出勤日数をstring型に変換
             wt[WORKDAYS] = str(wt[WORKDAYS])
-            # 合計時間が閾値より大きい場合、対象社員の結果をリストに保存
-            if int(wt[TOTALTIME].split(":")[0]) >= OVERWORK_THRESHOLD:
-                rets.append(wt)
-                logger.info(wt)
-
+            # 集計結果を追加
+            rets.append(wt)
+            
         except exceptions.UnexpectedAlertPresentException as e:
             logger.warning('該当者不在のためスキップ')
             Alert(driver).accept()
@@ -503,7 +501,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
 ####################################
 # コマンドライン引数定義
 argparser = argparse.ArgumentParser()
-argparser.add_argument('-m', '--mode', type=int, choices=[1,2], help='実行モード 1:残業時間チェック 2:打ち忘れチェック', required=True)
+argparser.add_argument('-m', '--mode', type=int, choices=[1,2,3], help='実行モード 1:残業時間チェック 2:打ち忘れチェック 3:残業時間算出', required=True)
 argparser.add_argument('-d', '--date', type=lambda s: datetime.strptime(s, '%Y%m%d'), help='yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。')
 argparser.add_argument('-e', '--exholiday', action='store_true', help='土日祝日の場合はチェックをしない。')
 
@@ -591,7 +589,7 @@ except exceptions.NoSuchElementException as e:
 ####################################
 # ホーム画面 : 指定画面へ遷移
 ####################################
-if mode == 1:
+if mode == 1 or mode == 3:
     try:
         menuClick("就業週報月報")
     except Exception as e:
@@ -600,15 +598,25 @@ if mode == 1:
         sys.exit()
     # 残業時間取得
     rets = getOverWork()
-    # 結果をメール送信
-    if len(rets) > 0:
-        #csvOutput(rets,CSVNAME)
-        sendResultMail(rets,
-            '残業時間チェック結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
-            '残業時間'+str(OVERWORK_THRESHOLD)+'H超過対象者およびその上長への通知です。\n対象者は45Hを超えないよう、計画的に稼働してください。\n\n',
-            #[CSVNAME],
-            False,
-            MAIL_ESC_OVERWORK)
+    
+    if mode == 1:
+        # 合計時間が閾値を超過したデータを超過リストに追加
+        retsOver = []
+        for ret in rets:
+            if int(ret['残業合計'].split(":")[0]) >= OVERWORK_THRESHOLD:
+                logger.info(ret)
+                retsOver.append(ret)
+
+        # 結果をメール送信
+        if len(retsOver) > 0:
+            sendResultMail(retsOver,
+                '残業時間チェック結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
+                '残業時間'+str(OVERWORK_THRESHOLD)+'H超過対象者およびその上長への通知です。\n対象者は45Hを超えないよう、計画的に稼働してください。\n\n',
+                #[CSVNAME],
+                False,
+                MAIL_ESC_OVERWORK)
+    elif mode == 3:
+        csvOutput(rets,CSVNAME)
 
 elif mode == 2:
     try:
