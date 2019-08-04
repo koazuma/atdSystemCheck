@@ -44,19 +44,37 @@ logger.addHandler(handler)
 logger.info("---- START "+__file__+" ----")
 
 ####################################
+# 直近のチェック対象日取得
+####################################
+def getRecentTargetDate(targetDate):
+    """
+    Overview:
+        直近のチェック対象日取得。
+        基本は前日だが、休日除外設定の場合は直近の営業日。
+    Args:
+        targetDate (date): チェック日
+    Returns:
+        rtd(date): 直近チェック対象日
+    """
+    rtd = targetDate - relativedelta(days=1)
+    if args.exholiday and isHoliday(rtd, os.path.join(parentdir, 'syukujitsu.csv')):
+        rtd = getRecentTargetDate(rtd)
+    return rtd
+
+####################################
 # 期間検索用関数
 ####################################
-def getSpan(nowDate, type):
+def getSpan(targetDate, type):
     """
     Overview:
         対象期間(開始日/終了日)を取得するための関数
     Args:
-        nowDate (datetime): 対象期間取得のための基幹日
+        targetDate (datetime): 対象期間取得のための基幹日
         type (int): 1:20日締め月間(残業時間等), 2:月末締め月間 のいずれか
     Returns:
         fromDate(relativedelta), toDate(relativedelta): 開始日,終了日
     """
-    logger.info("START function getSpan nowDate:" + nowDate.strftime('%Y%m%d') + " type:" + str(type))
+    logger.info("START function getSpan targetDate:" + targetDate.strftime('%Y%m%d') + " type:" + str(type))
 
     try:
         # 締め期間ルール設定
@@ -68,13 +86,15 @@ def getSpan(nowDate, type):
             logger.error("function getSpan: input type is not 1,2,3")
             raise ValueError
 
+        # 基準日を取得
+        baseDate = getRecentTargetDate(targetDate)
         # 当月開始日より前
-        if nowDate.day < FROM_DAY:
-            toDate = date(nowDate.year, nowDate.month, FROM_DAY) - relativedelta(days=1)
+        if baseDate.day < FROM_DAY:
+            toDate = date(baseDate.year, baseDate.month, FROM_DAY) - relativedelta(days=1)
             fromDate = toDate - relativedelta(months=1) + relativedelta(days=1)
         # 当月開始日以降
         else :
-            fromDate = date(nowDate.year, nowDate.month, FROM_DAY)
+            fromDate = date(baseDate.year, baseDate.month, FROM_DAY)
             toDate = fromDate + relativedelta(months=1) - relativedelta(days=1)
 
     except ValueError as e :
@@ -502,7 +522,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
 def isHoliday(targetDate, syukujitsuPath):
     """
     Overview
-        結果をメールで送信する
+        祝休日かどうか判定する
     Args
         targetDate(date): 判定対象日
         syukujitsuPath(string): 国土交通省発行のsyukujitsu.csvの格納パス
@@ -545,10 +565,10 @@ mode = args.mode
 if args.date:
     nowDate = date(args.date.year, args.date.month, args.date.day)
 else:
-    nowDate = date.today() - relativedelta(days=1)
+    nowDate = date.today()
 
 # 休日未実行設定の場合は休日判定
-if args.exholiday and isHoliday(date.today(), os.path.join(parentdir, 'syukujitsu.csv')):
+if args.exholiday and isHoliday(nowDate, os.path.join(parentdir, 'syukujitsu.csv')):
     logger.info('End halfway, because of holiday.')
     sys.exit()
 
