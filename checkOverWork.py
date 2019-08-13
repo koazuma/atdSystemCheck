@@ -22,13 +22,6 @@ parentdir = os.path.dirname(__file__)
 CONFIGFILE = os.path.join(parentdir, 'setting.ini')
 # 社員リスト
 EMPLOYEE_LIST = os.path.join(parentdir, 'members.json')
-# 残業時間閾値(H)
-OVERWORK_THRESHOLD = 25
-# メール通知エスカレーションレベル(上限なし:-1 本人まで:0 直上長まで:1 ...)
-# 残業時間チェック
-MAIL_ESC_OVERWORK = -1
-# 打ち忘れチェック
-MAIL_ESC_STAMPMISS = 1
 
 # log設定
 logging.basicConfig(level=logging.INFO,
@@ -78,12 +71,12 @@ def getSpan(targetDate, type):
 
     try:
         # 締め期間ルール設定
-        if type == 1 or type == 3:
+        if type == 1:
             FROM_DAY = 21
-        elif type == 2:
+        elif type == 2 or type == 3:
             FROM_DAY = 1
         else:
-            logger.error("function getSpan: input type is not 1,2,3")
+            logger.error("function getSpan: input type error. type:" + type)
             raise ValueError
 
         # 基準日を取得
@@ -199,25 +192,25 @@ def getOverWork():
                         logger.error(e)
                         raise(e)
                     except exceptions.UnexpectedAlertPresentException as e:
-                        logger.warning('該当者不在のためスキップ')
-                        #logger.warning(e)
-                        Alert(driver).accept()
-                        break
+                        logger.warning('該当者不在のためスキップ - 対象期間変更 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
+                        continue
                     
 
                 # 対象日の指定列のデータを取得
-                for key in itemids.keys():
-                    # 対象日のtdタグのidを作成
-                    tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
-                    elm = driver.find_element_by_xpath("//td[@id='"+tgtid+"']")
-                    workTime = elm.get_attribute("DefaultValue")
-                    if workTime == EMPTY_MARK:
-                        workTime = "00:00"
-                    else:
-                        wt[WORKDAYS] += 1
-                    wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-                    wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-
+                try:
+                    for key in itemids.keys():
+                        # 対象日のtdタグのidを作成
+                        tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
+                        elm = driver.find_element_by_xpath("//td[@id='"+tgtid+"']")
+                        workTime = elm.get_attribute("DefaultValue")
+                        if workTime == EMPTY_MARK:
+                            workTime = "00:00"
+                        else:
+                            wt[WORKDAYS] += 1
+                        wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+                        wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+                except exceptions.NoSuchElementException as e:
+                        logger.warning('該当者不在のためスキップ - 対象日データ取得 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
                 # 対象日のデータ取得を終えたらインクリメントして翌日へ
                 curdate += relativedelta(days=1)
             # reletivedelta型をHH:MM型の文字列に変換
@@ -230,8 +223,8 @@ def getOverWork():
             rets.append(wt)
             
         except exceptions.UnexpectedAlertPresentException as e:
-            logger.warning('該当者不在のためスキップ')
-            Alert(driver).accept()
+            logger.warning('該当者不在のためスキップ - 対象者変更 氏名:'+name)
+            continue
 
         ####################################
         # 対象社員を変更
@@ -296,7 +289,6 @@ def checkStampMiss():
         # サブウインドウにフォーカス移動
         wh = driver.window_handles
         driver.switch_to.window(wh[1])
-        logger.info('switch target window - '+str(wh[1]))
         # フレーム指定
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
@@ -318,7 +310,6 @@ def checkStampMiss():
         
         # メインウィンドウにフォーカス移動
         driver.switch_to.window(wh[0])
-        logger.info('switch target window - '+str(wh[0]))
 
         # フレーム指定
         driver.switch_to.parent_frame()
@@ -546,22 +537,188 @@ def isHoliday(targetDate, syukujitsuPath):
         raise (e)
     else:
         return ret
+
+####################################
+# 工数配分入力 - 個人選択
+####################################
+def selectMember(id):
+    """
+    Overview
+        工数配分入力結果で個人選択する
+    Args
+        社員番号
+    Return
+        なし
+    """
+    logger.info('START function selectMember id:' + id)
+    try:
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+        # 個人選択ボタンクリック
+        driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
+        
+        # サブウインドウにフォーカス移動
+        wh = driver.window_handles
+        driver.switch_to.window(wh[1])
+        # フレーム指定
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+
+        # フレーム内描画待ち(タイムアウトが多いため追加)
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.NAME, 'lstSelemp'))
+            )
+        except exceptions.TimeoutException as e:
+            logger.error('画面表示タイムアウトエラー')
+            logger.error(e)
+            sys.exit()
     
+        # selectインスタンス作成
+        memberSelect = Select(driver.find_element_by_name('lstSelemp'))
+        # 指定のvalue値のoptionを選択
+        memberSelect.select_by_value(id)
+        # 確定ボタンクリック
+        driver.find_element_by_id('buttonKAKUTEI').click()
+
+        # メインウィンドウにフォーカス移動
+        driver.switch_to.window(wh[0])
+
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+
+    except Exception as e:
+        logger.error(e)
+        raise
+
+####################################
+# 工数配分入力結果取得
+####################################
+def checkManHourRegist():
+    """
+    Overview
+        工数配分入力結果での就業時間と合計が不一致な日をチェックする
+    Args
+        なし
+    Return
+        rets: 工数配分入力結果での社員番号、氏名、時間不一致日の連想配列
+    """
+    logger.info('START function checkManHourRegist')
+    try:
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+        # 個人選択ボタンクリック
+        driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
+        
+        # サブウインドウにフォーカス移動
+        wh = driver.window_handles
+        driver.switch_to.window(wh[1])
+        # フレーム指定
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+
+        # フレーム内描画待ち(タイムアウトが多いため追加)
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.NAME, 'lstSelemp'))
+            )
+        except exceptions.TimeoutException as e:
+            logger.error('画面表示タイムアウトエラー')
+            logger.error(e)
+            raise
+    
+        # selectインスタンス作成、メンバーリスト取得
+        ids = []
+        memberSelect = Select(driver.find_element_by_name('lstSelemp'))
+        members = memberSelect.options
+        for member in members:
+            ids.append(member.get_attribute("value"))
+        memberSelect.select_by_index(0)
+        # 確定ボタンクリック
+        driver.find_element_by_id('buttonKAKUTEI').click()
+        
+        # メインウィンドウにフォーカス移動
+        driver.switch_to.window(wh[0])
+
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+
+        # 初期化
+        rets = []
+
+        # メンバー指定
+        for id in ids:
+            selectMember(id)
+
+            # 対象期間のスタート区間まで戻る
+            nowTerm = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
+            nowTermStart = datetime.strptime(nowTerm[0],'%Y/%m/%d')
+            while startdate < datetime.date(nowTermStart):
+                driver.find_element_by_name('PrevEmpCode').click()
+                # フレーム指定
+                driver.switch_to.parent_frame()
+                frames = driver.find_elements_by_xpath("//frame")
+                driver.switch_to.frame(frames[1])
+                # 現在表示中の開始日を取得
+                nowTerm = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
+                nowTermStart = datetime.strptime(nowTerm[0],'%Y/%m/%d')
+            while enddate >= datetime.date(nowTermStart):
+                # 工数登録誤りチェック(対象期間終了まで繰り返し)
+                # テーブル要素の構成「/table/tbody/tr[X]/td[Y]」が以下ルールになっている
+                # X...1:日付, 8:就業時間, 16:合計
+                # Y...3:1日目, 4:2日目,...,9:7日目
+                for i in range(3,10):
+                    ret = {}
+                    wt = driver.find_element_by_xpath('//*[@id="xyw4100_form"]/table/tbody/tr[8]/td[' + str(i) +']/font').text
+                    total = driver.find_element_by_xpath('//*[@id="xyw4100_form"]/table/tbody/tr[16]/td[' + str(i) +']/font').text
+                    if wt != total:
+                        ret['氏名'] = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[3]').text
+                        ret['社員番号'] = id
+                        ret['日付'] = driver.find_element_by_xpath('//*[@id="xyw4100_form"]/table/tbody/tr[1]/td[' + str(i) +']').text
+                        ret['就業時間'] = wt
+                        ret['合計'] = total
+                        rets.append(ret)
+                        logging.info(ret)
+                # 次期間に移動
+                driver.find_element_by_name('NextEmpCode').click()
+                # フレーム指定
+                driver.switch_to.parent_frame()
+                frames = driver.find_elements_by_xpath("//frame")
+                driver.switch_to.frame(frames[1])
+                # 現在表示中の開始日を取得
+                nowTerm = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
+                nowTermStart = datetime.strptime(nowTerm[0],'%Y/%m/%d')
+
+        return(rets)
+
+    except Exception as e:
+        logger.error(e)
+        raise
+
 ####################################
 # main
 ####################################
 # コマンドライン引数定義
 argparser = argparse.ArgumentParser()
-argparser.add_argument('-m', '--mode', type=int, choices=[1,2,3], help='実行モード 1:残業時間チェック 2:打ち忘れチェック 3:残業時間算出', required=True)
+argparser.add_argument('-m', '--mode', type=int, choices=[1,2,3], help='チェック種別 1:残業時間 2:打ち忘れ 3:工数登録', required=True)
+argparser.add_argument('-o', '--output', type=int, choices=[1,2], help='出力タイプ 1:メール送信 2:CSVファイル出力', required=True)
 argparser.add_argument('-d', '--date', type=lambda s: datetime.strptime(s, '%Y%m%d'), help='yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。')
 argparser.add_argument('-e', '--exholiday', action='store_true', help='土日祝日の場合はチェックをしない。')
 
 # 引数パース
 args = argparser.parse_args()
 
-# 実行モード
+# チェック種別
 mode = args.mode
-# 指定日付(未指定時は前日)
+# 指定日付(未指定時は当日)
 if args.date:
     nowDate = date(args.date.year, args.date.month, args.date.day)
 else:
@@ -575,7 +732,7 @@ if args.exholiday and isHoliday(nowDate, os.path.join(parentdir, 'syukujitsu.csv
 # config読み込み
 try:
     config = configparser.ConfigParser()
-    config.read(CONFIGFILE)
+    config.read(CONFIGFILE, 'UTF-8')
 except Exception as e:
     logger.error('configファイル"'+CONFIGFILE+'"が見つかりません。')
     logger.error(e)
@@ -583,11 +740,14 @@ except Exception as e:
 
 # 開始日、終了日を取得
 startdate,enddate = getSpan(nowDate,mode)
+# 強制設定用
+startdate = date(2018,11,1)
+enddate = date(2019,8,31)
 logger.info("collectionTerm: "+str(startdate)+" - "+str(enddate))
 
 # 結果CSVファイル名セット
-CSVNAME = "OverWork"+startdate.strftime('_F%Y%m%d')+enddate.strftime('-T%Y%m%d') \
-    +datetime.now().strftime('_@%Y%m%d-%H%M%S') +".csv"
+CSVNAME = 'checkAtd_'+ str(mode) + startdate.strftime('_%Y%m%d') + enddate.strftime('-%Y%m%d') \
+    + datetime.now().strftime('_%Y%m%d-%H%M%S') + ".csv"
 CSVNAME = os.path.join(parentdir, CSVNAME)
 
 # webDriver起動
@@ -635,53 +795,51 @@ except exceptions.NoSuchElementException as e:
     sys.exit()
 
 ####################################
-# ホーム画面 : 指定画面へ遷移
+# チェック結果取得
 ####################################
-if mode == 1 or mode == 3:
-    try:
-        menuClick("就業週報月報")
-    except Exception as e:
-        logger.error('メニュークリック失敗')
-        logger.error(str(e))
-        sys.exit()
-    # 残業時間取得
-    rets = getOverWork()
-    
-    if mode == 1:
-        # 合計時間が閾値を超過したデータを超過リストに追加
-        retsOver = []
-        for ret in rets:
-            if int(ret['残業合計'].split(":")[0]) >= OVERWORK_THRESHOLD:
-                logger.info(ret)
-                retsOver.append(ret)
+# mode別チェック結果取得
+try:
+    menuClick(config.get('modeinfo_'+str(mode), 'CLICKMENU'))
+except Exception as e:
+    logger.error('メニュークリック失敗')
+    logger.error(str(e))
+    sys.exit()
 
-        # 結果をメール送信
-        if len(retsOver) > 0:
-            sendResultMail(retsOver,
-                '残業時間チェック結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
-                '残業時間'+str(OVERWORK_THRESHOLD)+'H超過対象者およびその上長への通知です。\n対象者は45Hを超えないよう、計画的に稼働してください。\n\n',
-                #[CSVNAME],
-                False,
-                MAIL_ESC_OVERWORK)
-    elif mode == 3:
-        csvOutput(rets,CSVNAME)
+# 残業時間取得
+if mode == 1:
+    retsOver = getOverWork()
+    # メール送信の場合は合計時間が閾値以上のもののみリストに追加    
+    if args.output == 1:
+        OVERWORK_THRESHOLD = config.getint('modeinfo_'+str(mode), 'OVERWORK_THRESHOLD')
+    else:
+        OVERWORK_THRESHOLD = 0
+    rets = []
+    for ret in retsOver:
+        if int(ret['残業合計'].split(":")[0]) >= OVERWORK_THRESHOLD:
+            logger.info(ret)
+            rets.append(ret)
 
+# 打ち忘れチェックリスト取得
 elif mode == 2:
-    try:
-        menuClick("打ち忘れﾁｪｯｸﾘｽﾄ")
-    except Exception as e:
-        logger.error('メニュークリック失敗')
-        logger.error(str(e))
-        sys.exit()
-    # 打ち忘れチェックリスト結果取得
     rets = checkStampMiss()
-    # 結果をメール送信
-    if len(rets) > 0:
+
+# 工数登録結果取得
+elif mode == 3:
+    rets = checkManHourRegist()
+
+# 結果が1件以上あったらアウトプット
+if len(rets) > 0:
+    # メール送信
+    if args.output == 1:
         sendResultMail(rets,
-            '打ち忘れチェックリスト確認結果のお知らせ '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
-            '打ち忘れチェックリスト確認結果を連絡します。\n対象者は速やかに必要な申請を行ってください。\n\n',
-            False,
-            MAIL_ESC_STAMPMISS)
+        config.get('modeinfo_'+str(mode), 'MAILTITLE')+' '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
+        config.get('modeinfo_'+str(mode), 'MAILBODY')+'\n\n',
+        #[CSVNAME],
+        False,
+        config.get('modeinfo_'+str(mode), 'MAIL_ESC_LEVEL'))
+    # CSVファイル出力
+    elif args.output == 2:
+        csvOutput(rets,CSVNAME)
 
 # 終了処理
 driver.close()
