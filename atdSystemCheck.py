@@ -447,9 +447,10 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
     mail_body = ''
 
     for ret in rets:
-        # タイトル行出力
         if mail_body == '':
+            # タイトル行出力
             mail_body = '\t'.join(ret.keys())
+        # チェック結果出力
         mail_body = mail_body + '\r\n' + '\t'.join(ret.values())
     mail_body = mailstr + mail_body
 
@@ -462,17 +463,17 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
         mail_cc = []
         for ret in rets:
             cmpcode = str(int(ret['社員番号']))
-            # TO設定
             if cmpcode in members:
+                # TO設定
                 selfmail = members[cmpcode]['mail']
                 if selfmail not in mail_to:
                     mail_to.append(selfmail)
+                # CC設定
+                mail_cc = addBossMailRecursive(cmpcode, mail_cc, members, levels)
             else:
                 # memers.jsonにいない場合
                 logger.error('Not found cmpcode: ' + cmpcode + ' in members.')
-            # CC設定
-            mail_cc = addBossMailRecursive(cmpcode, mail_cc, members, levels)
-
+            
     # メールの内容を作成
     if attaches:
         mime = MIMEMultipart()
@@ -741,12 +742,12 @@ except Exception as e:
 # 開始日、終了日を取得
 startdate,enddate = getSpan(nowDate,mode)
 # 強制設定用
-startdate = date(2018,11,1)
-enddate = date(2019,8,31)
+#startdate = date(2018,11,1)
+#enddate = date(2019,8,31)
 logger.info("collectionTerm: "+str(startdate)+" - "+str(enddate))
 
 # 結果CSVファイル名セット
-CSVNAME = 'checkAtd_'+ str(mode) + startdate.strftime('_%Y%m%d') + enddate.strftime('-%Y%m%d') \
+CSVNAME = 'resultAtdCheck_'+'m{:02}'.format(mode) + startdate.strftime('_%Y%m%d') + enddate.strftime('-%Y%m%d') \
     + datetime.now().strftime('_%Y%m%d-%H%M%S') + ".csv"
 CSVNAME = os.path.join(parentdir, CSVNAME)
 

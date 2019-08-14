@@ -117,8 +117,8 @@ members.jsonを編集して社員情報の設定をします。
 ### usage
 
 ```batch
-> python checkOverWork.py -h
-usage: checkOverWork.py [-h] -m {1,2,3} -o {1,2} [-d DATE] [-e]
+> python atdSystemCheck.py -h
+usage: atdSystemCheck.py [-h] -m {1,2,3} -o {1,2} [-d DATE] [-e]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -141,7 +141,7 @@ optional arguments:
   指定日(デフォルトは前日)を含む期間の残業時間をチェックします。
 
   ```batch
-  python checkOverWork.py -m 1 -o 1
+  python atdSystemCheck.py -m 1 -o 1
   ```
 
 * 2 : 打ち忘れチェック
@@ -149,7 +149,7 @@ optional arguments:
   指定日(デフォルトは前日)を含む期間の打ち忘れチェックをします。
 
   ```batch
-  python checkOverWork.py -m 2 -o 1
+  python atdSystemCheck.py -m 2 -o 1
   ```
 
 * 3 : 工数登録チェック
@@ -157,7 +157,7 @@ optional arguments:
   指定日(デフォルトは前日)を含む期間の工数登録チェックをします。
 
   ```batch
-  python checkOverWork.py -m 3 -o 1
+  python atdSystemCheck.py -m 3 -o 1
   ```
 
 #### -o --output
@@ -168,7 +168,7 @@ optional arguments:
   メール通知の場合は-oオプションに1を指定して下さい。チェック結果を対象者にメール通知します。
 
   ```batch
-  python checkOverWork.py -m 1 -o 1
+  python atdSystemCheck.py -m 1 -o 1
   ```
 
   * エスカレーションレベル
@@ -189,9 +189,11 @@ optional arguments:
 
 * 2 : CSV出力
   CSV出力の場合は-oオプションに2を指定して下さい。同一ディレクトリにチェック結果をCSV形式で出力します。
+  ファイル名は'resultAtdCheck_m{mode}_{yyyymmdd-yyyymmdd(対象期間)}_{yyyymmdd-hhmmss(実行日時)}.csv'となります。
 
   ```batch
-  python checkOverWork.py -m 1 -o 2
+  python atdSystemCheck.py -m 1 -o 2
+  -> 'resultAtdCheck_m02_20190801-20190831_20190814-090042.csv'
   ```
 
 #### -d --date
@@ -199,7 +201,7 @@ optional arguments:
 yyyymmddの日付つきでdオプションを指定すると、指定日に実行した仮定でコマンドが実行されます。前月分の状況確認等に。
 
 ```batch
-python checkOverWork.py -m 1 -o 1 -d 20190401
+python atdSystemCheck.py -m 1 -o 1 -d 20190401
 ```
 
 ### -e --exholiday
@@ -209,7 +211,7 @@ eオプションを指定する場合は以下からDL可能な内閣府配布�
 <https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html#syukujitu>
 
 ```batch
-python checkOverWork.py -m 2 -o 1 -e
+python atdSystemCheck.py -m 2 -o 1 -e
 ```
 
 ## 著作者
