@@ -837,7 +837,7 @@ if len(rets) > 0:
         config.get('modeinfo_'+str(mode), 'MAILBODY')+'\n\n',
         #[CSVNAME],
         False,
-        int(config.get('modeinfo_'+str(mode), 'MAIL_ESC_LEVEL')))
+        config.get('modeinfo_'+str(mode), 'MAIL_ESC_LEVEL'))
     # CSVファイル出力
     elif args.output == 2:
         csvOutput(rets,CSVNAME)
