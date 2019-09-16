@@ -80,8 +80,9 @@ pythonからのメール送信を可能にするために、<https://myaccount.g
 ### 社員情報設定
 
 members.jsonを編集して社員情報の設定をします。
-ある社員の社員番号をkeyとして、氏名、グループ、メールアドレス、上長(の社員番号)のオブジェクトがvalueという形の配列になっています。
+ある社員の社員番号をkeyとして"氏名、グループ、メールアドレス、上長(の社員番号)、無視設定"のオブジェクトがvalueという形の配列になっています。
 上長は空、もしくはカンマ区切りでの複数設定も可能です。
+無視設定を0以外にすると通知されなくなります。
 
 ```json
 {
@@ -89,25 +90,29 @@ members.jsonを編集して社員情報の設定をします。
         "name":"野比のび太",
         "group":"1",
         "mail":"nobitanokuseninamaikida@gmail.com",
-        "boss":"200,201"
+        "boss":"200,201",
+        "ignore":"0"
     },
     "200":{
         "name":"骨川スネ夫",
         "group":"1",
         "mail":"sunechama@gmail.com",
-        "boss":"300"
+        "boss":"300",
+        "ignore":"1"
     },
     "201":{
         "name":"源静香",
         "group":"1",
         "mail":"sizuka@gmail.com",
-        "boss":""
+        "boss":"",
+        "ignore":"0"
     },
     "300":{
         "name":"剛田武",
         "group":"",
         "mail":"gian@gmail.com",
-        "boss":""
+        "boss":"",
+        "ignore":"0"
     },
 }
 ```
