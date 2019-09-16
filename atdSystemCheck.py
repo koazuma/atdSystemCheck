@@ -244,10 +244,10 @@ def getOverWork():
 def csvOutput(rets,fpath):
     """
     Overview
-        連想配列をcsvファイルに出力する。
+        リストをcsvファイルに出力する。
     Args
-        rets: 出力対象の連想配列
-        fpath: 出力ファイルパス
+        rets(list): 出力対象のリスト
+        fpath(string): 出力ファイルパス
     Return
         なし
     """
@@ -407,6 +407,28 @@ def addBossMailRecursive(id, mail, members, levels, depth=0):
                 # memers.jsonにいない場合
                 logger.error('Not found cmpcode: ' + cmpcode + ' in members.')
     return mail
+
+####################################
+# 無視メンバー削除
+####################################
+def deleteIgnoreMember(rets):
+    """
+    Overview
+        無視設定メンバーを削除する。
+    Args
+        rets(list): 社員番号キーを持つ辞書型オブジェクトのリスト
+    Return
+        newRets(list): 無視設定メンバーを除いたリスト
+    """
+    newRets = []
+    # メンバーのjsonファイル読み込み
+    with open(EMPLOYEE_LIST,'r',encoding='utf-8') as f:
+        members = json.load(f)
+        for ret in rets:
+            cmpcode = str(int(ret['社員番号']))
+            if members[cmpcode]['ignore'] == "0":
+                newRets.append(ret)
+    return(newRets)
 
 ####################################
 # メール送信
@@ -827,6 +849,9 @@ elif mode == 2:
 # 工数登録結果取得
 elif mode == 3:
     rets = checkManHourRegist()
+
+# 無視リスト対象者削除
+rets = deleteIgnoreMember(rets)
 
 # 結果が1件以上あったらアウトプット
 if len(rets) > 0:
