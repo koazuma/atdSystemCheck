@@ -223,19 +223,21 @@ def getOverWork():
             rets.append(wt)
             
         except exceptions.UnexpectedAlertPresentException as e:
+            # 対象社員が退職後等で不在の場合→スキップ
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.XPATH, "//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]"))
+            )
+            name = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
             logger.warning('該当者不在のためスキップ - 対象者変更 氏名:'+name)
-            continue
 
-        ####################################
-        # 対象社員を変更
-        ####################################
-        # 次が選択可なら次社員を選択
-        tgtname = "button4"
-        if driver.find_element_by_name(tgtname).is_enabled() :
-            driver.find_element_by_name(tgtname).click()
-        # 次が選択不可ならループ終了
-        else :
-            break
+        finally:
+            # 次が選択可なら次社員を選択
+            tgtname = "button4"
+            if driver.find_element_by_name(tgtname).is_enabled() :
+                driver.find_element_by_name(tgtname).click()
+            # 次が選択不可ならループ終了
+            else :
+                break
     return rets
 
 ####################################
