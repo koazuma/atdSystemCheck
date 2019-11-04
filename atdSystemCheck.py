@@ -7,7 +7,7 @@ from selenium.webdriver.common.alert import Alert
 from selenium.common import exceptions
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
-import logging
+from logging import getLogger, StreamHandler, FileHandler, Formatter, DEBUG, INFO, WARNING, ERROR
 import sys
 import os
 import csv
@@ -15,6 +15,8 @@ import configparser
 import traceback
 import json
 import argparse
+import inspect
+import time
 
 # scriptフォルダ
 parentdir = os.path.dirname(__file__)
@@ -22,17 +24,28 @@ parentdir = os.path.dirname(__file__)
 CONFIGFILE = os.path.join(parentdir, 'setting.ini')
 # 社員リスト
 EMPLOYEE_LIST = os.path.join(parentdir, 'members.json')
+# タイムアウト設定
+TIMEOUTSEC = 10
+FORCESLEEPSEC = 3
 
 # log設定
-logging.basicConfig(level=logging.INFO,
-    format="%(asctime)s %(process)d %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
+#logging.basicConfig(level=logger.DEBUG,
+#    filename=__file__ + '.log',
+#    format="%(asctime)s %(process)d %(name)s %(levelname)s %(message)s")
+getLogger().setLevel(DEBUG)
+logger = getLogger(__name__)
 
 # ログファイル出力用
-handler = logging.FileHandler(filename=__file__ + ".log")
-handler.setLevel(logging.INFO)
-handler.setFormatter(logging.Formatter("%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"))
-logger.addHandler(handler)
+filehandler = FileHandler(filename=__file__ + '.log')
+filehandler.setLevel(DEBUG)
+filehandler.setFormatter(Formatter("%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"))
+logger.addHandler(filehandler)
+
+# コンソールログ出力用
+streamhandler = StreamHandler()
+streamhandler.setLevel(INFO)
+streamhandler.setFormatter(Formatter("%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"))
+logger.addHandler(streamhandler)
 
 logger.info("---- START "+__file__+" ----")
 
@@ -67,7 +80,7 @@ def getSpan(targetDate, type):
     Returns:
         fromDate(relativedelta), toDate(relativedelta): 開始日,終了日
     """
-    logger.info("START function getSpan targetDate:" + targetDate.strftime('%Y%m%d') + " type:" + str(type))
+    logger.info(str(getCurLineNo())+' START function targetDate:' + targetDate.strftime('%Y%m%d') + ' type:' + str(type))
 
     try:
         # 締め期間ルール設定
@@ -76,7 +89,7 @@ def getSpan(targetDate, type):
         elif type == 2 or type == 3:
             FROM_DAY = 1
         else:
-            logger.error("function getSpan: input type error. type:" + type)
+            logger.error(str(getCurLineNo())+' input type error. type:' + type)
             raise ValueError
 
         # 基準日を取得
@@ -90,9 +103,9 @@ def getSpan(targetDate, type):
             fromDate = date(baseDate.year, baseDate.month, FROM_DAY)
             toDate = fromDate + relativedelta(months=1) - relativedelta(days=1)
 
-    except ValueError as e :
-        logger.error("function getSpan: " + str(e))
-        raise (e)
+    except exceptions.ValueError as e :
+        logger.error(str(getCurLineNo())+' '+ str(e))
+        raise(e)
     
     return fromDate, toDate
 
@@ -110,23 +123,130 @@ def menuClick(titleStr):
     Raises:
         NoSuchElementException: 親windowにハンドルがある状態で使用しないと発生
     """
-    logger.info('START function menuClick titleStr: ' + titleStr)
+    logger.info(str(getCurLineNo())+' START function titleStr:' + titleStr)
     try:
         # フレーム指定
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[0])
-
         # リンククリック
-        driver.find_element_by_xpath("//a[@title='" + titleStr + "']").click()
+        findElement('xpath', "//a[@title='" + titleStr + "']").click()
+        # 表示待ち
+        waitLocate()
+        time.sleep(FORCESLEEPSEC)
 
-    except exceptions.NoSuchElementException as e :
-        logger.error("function menuClick: " + str(e))
-        raise (e)
+    except (exceptions.NoSuchElementException, exceptions.TimeoutException) as e :
+        raise(e)
     else:
         return True
+####################################
+# 要素の描画確認後取得
+####################################
+def findElement(method, target, state='locate'):
+    """
+    Overview
+        指定要素を描画を待って取得する
+    Args
+        method(string): 要素確認方法(xpath/id/name)
+        target(string): 対象の要素(id,xpath,name等)
+        state(string): 確認内容(locate,click,select,text,frame等)
+    Return
+        対象の要素オブジェクト
+    Raises:
+        TimeoutException: 指定秒数待機しても要素が確認できなかった場合に発生
+    """
+    logger.debug(str(getCurLineNo())+' START function method:'+method+' target:'+target+' state:'+state)
+    try:
+        # state別に要素が確認できるまで待機
+        waitDriver(method, target, state)
+        # method別に要素取得
+        if method == 'xpath':
+            ret = driver.find_element_by_xpath(target)
+        elif method == 'id':
+            ret = driver.find_element_by_id(target)
+        elif method == 'name':
+            ret = driver.find_element_by_name(target)
+        else:
+            logger.error(str(getCurLineNo())+' 引数エラー method:'+method)
+            raise ValueError
+
+    except exceptions.UnexpectedAlertPresentException as e:
+        logger.error(str(getCurLineNo())+' UnexpectedAlertPresentException発生 ' +str(e))
+        raise(e)
+    except Exception as e:
+        logger.error(str(getCurLineNo())+' 例外エラー発生 ' +str(e))
+        raise(e)
+    else:
+        return ret
 
 ####################################
-# 就業週報月報画面 : 期間検索
+# パターン別待機
+####################################
+def waitDriver(method, target, state):
+    """
+    Overview
+        state別に指定要素の描画を待つ
+    Args
+        method(string): 要素確認方法(xpath/id/name)
+        target(string): 対象の要素(id,xpath,name等)
+        state(string): 確認内容(locate,click,select,frame等)
+    Return
+        なし
+    Raises:
+        TimeoutException: 指定秒数待機しても要素が確認できなかった場合に発生
+    """
+    bymethod = {
+        'xpath' : By.XPATH,
+        'id' : By.ID,
+        'name' : By.NAME
+    }
+    try:
+        if state == 'locate':
+            WebDriverWait(driver, TIMEOUTSEC).until(EC.presence_of_element_located((bymethod[method],target)))
+        elif state == 'click':
+            WebDriverWait(driver, TIMEOUTSEC).until(EC.element_to_be_clickable((bymethod[method],target)))
+        elif state == 'select':
+            WebDriverWait(driver, TIMEOUTSEC).until(EC.element_to_be_selected((bymethod[method],target)))
+        elif state == 'text':
+            WebDriverWait(driver, TIMEOUTSEC).until(EC.text_to_be_present_in_element((bymethod[method],target)))
+        elif state == 'vlocate':
+            WebDriverWait(driver, TIMEOUTSEC).until(EC.visibility_of_element_located((bymethod[method],target)))
+        elif state == 'frame':
+            WebDriverWait(driver, TIMEOUTSEC).until(EC.frame_to_be_available_and_switch_to_it((bymethod[method],target)))
+        else:
+            logger.error(str(getCurLineNo())+' 引数エラー state:'+state)
+            raise ValueError
+    except exceptions.TimeoutException as e:
+        logger.error(str(getCurLineNo())+' 画面表示タイムアウトエラー method:'+method+' target:'+target+' state:'+state)
+        raise(e)
+    except exceptions.UnexpectedAlertPresentException as e:
+        logger.error(str(getCurLineNo())+' UnexpectedAlertPresentException発生 '+str(e))
+        raise(e)
+    except Exception as e:
+        logger.error(str(getCurLineNo())+' 想定外の例外発生 '+str(e))
+        raise(e)
+
+####################################
+# 要素描画待ち
+####################################
+def waitLocate():
+    """
+    Overview
+        画面描画を待つ
+    Args
+        なし
+    Return
+        なし
+    Raises:
+        TimeoutException: 指定秒数待機しても要素が確認できなかった場合に発生
+    """
+    try:
+        WebDriverWait(driver, TIMEOUTSEC).until(EC.presence_of_all_elements_located)
+    except exceptions.TimeoutException as e:
+        logger.error(str(getCurLineNo())+' 画面表示タイムアウトエラー')
+        raise(e)
+
+####################################
+# 就業週報月報画面 : 残業時間取得
 ####################################
 def getOverWork():
     #----- 就業週報月報のtdタグidルール -----
@@ -147,7 +267,7 @@ def getOverWork():
     FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
     EMPTY_MARK = "----" # 稼働時間ゼロ表示
     #----------------------------------------
-    logger.info('START function getOverWork')
+    logger.info(str(getCurLineNo())+' START function')
     # フレーム指定
     driver.switch_to.parent_frame()
     frames = driver.find_elements_by_xpath("//frame")
@@ -158,11 +278,13 @@ def getOverWork():
     rets = []
 
     while True:
-
+        
         try:
             # 氏名、社員番号取得
-            name = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
-            cmpid = driver.find_element_by_xpath("//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
+            logger.debug(str(getCurLineNo())+' 氏名、社員番号取得')
+            name = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
+            cmpid = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
+            logger.info(str(getCurLineNo())+' 氏名:'+name+' 社員番号:'+cmpid)
 
             # 指定日、表示月、稼働時間を初期化
             curdate = startdate
@@ -176,41 +298,48 @@ def getOverWork():
 
             # 終了日まで指定日をインクリメントしながらデータ取得
             while curdate <= enddate:
+                logger.debug(str(getCurLineNo())+' 対象日:'+str(curdate))
                 # 月を指定して月報を表示(初回および月が変わった時のみ)
                 if curdate.month != dispmonth:
-                    dtElm = driver.find_element_by_id("CmbYM")
-                    Select(dtElm).select_by_value(curdate.strftime("%Y%m"))
-                    driver.find_element_by_name("srchbutton").click()
-                    dispmonth = curdate.month
-                    
                     try:
-                        WebDriverWait(driver, 10).until(
-                            EC.presence_of_all_elements_located((By.XPATH, "//td[@id='" + FDATE_ID + "']"))
-                        )
+                        dtElm = findElement('id','CmbYM')
+                        Select(dtElm).select_by_value(curdate.strftime('%Y%m'))
+                        logger.info(str(getCurLineNo())+' 指定月変更:'+curdate.strftime('%Y%m'))
+                        findElement('name','srchbutton','click').click()
+                        waitLocate()
+                        # WebDriverWaitで例外エラーを止める事が出来なかったため、止む無くsleepを使用
+                        time.sleep(FORCESLEEPSEC)
+                        dispmonth = curdate.month
                     except exceptions.TimeoutException as e:
-                        logger.error('画面表示タイムアウトエラー')
-                        logger.error(e)
+                        logger.error(str(getCurLineNo())+' 画面表示タイムアウトエラー')
                         raise(e)
                     except exceptions.UnexpectedAlertPresentException as e:
-                        logger.warning('該当者不在のためスキップ - 対象期間変更 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
+                        # 入社月の前月対策
+                        logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象期間変更 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
                         continue
-                    
 
                 # 対象日の指定列のデータを取得
                 try:
+                    # 対象日を確認
+                    tgtdateid = DAILYID_F + str(int(curdate.strftime('%d')) -1) + '-0'
+                    tgtdate = findElement('xpath',"//td[@id='"+tgtdateid+"']").get_attribute("DefaultValue")
+                    if tgtdate != curdate.strftime('%m/%d') :
+                        logger.error(str(getCurLineNo())+' 対象日相違エラー。 tgtdate:'+tgtdate+' curdate:'+curdate.strftime('%m/%d'))
+                        raise(ValueError)
+
                     for key in itemids.keys():
                         # 対象日のtdタグのidを作成
                         tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
-                        elm = driver.find_element_by_xpath("//td[@id='"+tgtid+"']")
-                        workTime = elm.get_attribute("DefaultValue")
+                        # 対象日の稼働時間を取得
+                        workTime = findElement('xpath',"//td[@id='"+tgtid+"']").get_attribute("DefaultValue")
                         if workTime == EMPTY_MARK:
                             workTime = "00:00"
                         else:
                             wt[WORKDAYS] += 1
                         wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
                         wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-                except exceptions.NoSuchElementException as e:
-                        logger.warning('該当者不在のためスキップ - 対象日データ取得 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
+                except (exceptions.NoSuchElementException, exceptions.TimeoutException) as e:
+                        logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象日データ取得 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
                 # 対象日のデータ取得を終えたらインクリメントして翌日へ
                 curdate += relativedelta(days=1)
             # reletivedelta型をHH:MM型の文字列に変換
@@ -221,22 +350,40 @@ def getOverWork():
             wt[WORKDAYS] = str(wt[WORKDAYS])
             # 集計結果を追加
             rets.append(wt)
+            logger.info(str(getCurLineNo())+' 集計結果追加 '+str(wt))
             
         except exceptions.UnexpectedAlertPresentException as e:
-            logger.warning('該当者不在のためスキップ - 対象者変更 氏名:'+name)
-            continue
+            # 対象社員が退職後等で不在の場合スキップ
+            name = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
+            logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象者変更 氏名:'+name)
+            # continue
 
-        ####################################
-        # 対象社員を変更
-        ####################################
-        # 次が選択可なら次社員を選択
-        tgtname = "button4"
-        if driver.find_element_by_name(tgtname).is_enabled() :
-            driver.find_element_by_name(tgtname).click()
-        # 次が選択不可ならループ終了
-        else :
-            break
+        except Exception as e:
+            logger.error(str(getCurLineNo())+' 想定外の例外エラー発生')
+            raise(e)
+
+        finally:
+            # 選択可なら次社員を選択
+            tgtname = 'button4'
+            if findElement('name',tgtname).is_enabled() :
+                findElement('name',tgtname,'click').click()
+                waitLocate()
+                # WebDriverWaitで例外エラーを止める事が出来なかったため、止む無くsleepを使用
+                time.sleep(FORCESLEEPSEC)
+                
+                logger.info(str(getCurLineNo())+' 対象社員変更')
+            else :
+                # 次が選択不可ならループ終了
+                logger.info(str(getCurLineNo())+' 対象社員終了')
+                break
     return rets
+
+####################################
+# カレント行取得
+####################################
+def getCurLineNo(depth=0):
+  frame = inspect.currentframe().f_back
+  return os.path.basename(frame.f_code.co_filename), frame.f_code.co_name, frame.f_lineno
 
 ####################################
 # 結果CSV出力
@@ -251,7 +398,7 @@ def csvOutput(rets,fpath):
     Return
         なし
     """
-    logger.info('START function csvOutput')
+    logger.info(str(getCurLineNo())+' START function')
     # ファイルオープン
     with open(fpath, 'w', newline='', encoding='utf_8_sig') as fp:
         writer = csv.writer(fp, lineterminator='\r\n')
@@ -263,7 +410,7 @@ def csvOutput(rets,fpath):
                 writer.writerow(ret.keys())
                 headerFlg = 1
             writer.writerow(ret.values())
-        logger.info("Output '"+fpath+"'.")
+        logger.info(str(getCurLineNo())+' Output '+fpath)
 
 ####################################
 # 打ち忘れチェックリスト取得
@@ -277,14 +424,16 @@ def checkStampMiss():
     Return
         打ち忘れチェックリストの社員番号、氏名、対象日、メッセージ項目1の連想配列
     """
-    logger.info('START function checkStampMiss')
+    logger.info(str(getCurLineNo())+' START function')
     try:
         # フレーム指定
         driver.switch_to.parent_frame()
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
         # 個人選択ボタンクリック
-        driver.find_element_by_xpath('//*[@id="Xyw1120g_form"]/table/tbody/tr[2]/td/table[2]/tbody/tr/td/table/tbody/tr/td[2]/input').click()
+        findElement('xpath', '//*[@id="Xyw1120g_form"]/table/tbody/tr[2]/td/table[2]/tbody/tr/td/table/tbody/tr/td[2]/input').click()
+        waitLocate()
+        time.sleep(FORCESLEEPSEC)
         
         # サブウインドウにフォーカス移動
         wh = driver.window_handles
@@ -293,20 +442,10 @@ def checkStampMiss():
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
 
-        # フレーム内描画待ち(タイムアウトが多いため追加)
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.ID, 'AllSel'))
-            )
-        except exceptions.TimeoutException as e:
-            logger.error('画面表示タイムアウトエラー')
-            logger.error(e)
-            sys.exit()
-    
         # 全選択ラジオボタンクリック
-        driver.find_element_by_id('AllSel').click()
+        findElement('id', 'AllSel').click()
         # 確定ボタンクリック
-        driver.find_element_by_id('buttonKAKUTEI').click()
+        findElement('id', 'buttonKAKUTEI').click()
         
         # メインウィンドウにフォーカス移動
         driver.switch_to.window(wh[0])
@@ -317,14 +456,17 @@ def checkStampMiss():
         driver.switch_to.frame(frames[1])
 
         # 期間指定
-        startYMD = driver.find_element_by_name('StartYMD')
-        endYMD = driver.find_element_by_name('EndYMD')
-        if startYMD.get_attribute('value') != startdate.strftime('%Y%m%d'):
+        startYMD = findElement('name', 'StartYMD')
+        logger.info(str(getCurLineNo())+' startYMD:'+startYMD.get_attribute('value')+' startdate:'+startdate.strftime('%Y%m%d'))
+        if startYMD.get_attribute('value') != startdate.strftime('%Y/%m/%d'):
             startYMD.clear()
             startYMD.send_keys(startdate.strftime('%Y%m%d'))
+            endYMD = findElement('name', 'EndYMD')
             endYMD.clear()
             endYMD.send_keys(enddate.strftime('%Y%m%d'))
-            driver.find_element_by_name('srchbutton').click()
+            findElement('name', 'srchbutton').click()
+            waitLocate()
+            time.sleep(FORCESLEEPSEC)
         
         # テーブルのデータ取得
         # テーブル要素のid構成を利用して取得
@@ -353,14 +495,15 @@ def checkStampMiss():
             # 対象行の有無チェック
             rowid = TRIDBASE + str(row)
             try:
+                logger.debug(str(getCurLineNo())+' rowid:'+rowid)
                 driver.find_element_by_id(rowid)
+                logger.debug(str(getCurLineNo())+' rowid:'+rowid)
             except exceptions.NoSuchElementException as e :
-                logging.info('最終行到達')
+                logger.info(str(getCurLineNo())+' 最終行到達')
                 break
             except Exception as e :
-                logging.error('想定外の例外エラー発生')
-                logging.error(e)
-                raise
+                logger.error(str(getCurLineNo())+' 対象行確認-想定外の例外エラー発生')
+                raise(e)
 
             # 要素取得
             for key in itemids.keys():
@@ -368,15 +511,15 @@ def checkStampMiss():
                 ret[key] = driver.find_element_by_id(targetid).text
 
             # 次行にインクリメント
-            logging.info(ret)
+            logger.info(ret)
             rets.append(ret)
             row += 1
 
         return(rets)
 
     except Exception as e:
-        logger.error(e)
-        raise
+        logger.error('想定外の例外エラー発生')
+        raise(e)
 
 ####################################
 # 上長のメールアドレス追加
@@ -394,18 +537,22 @@ def addBossMailRecursive(id, mail, members, levels, depth=0):
     Return
         mail(array): メールアドレス配列 
     """
+    # エスカレーションレベルに達したら終了
     if levels != depth:
+        # デリミタ(,)で分割して上司ID取得
         bossids = members[id]['boss'].split(',')
         for bossid in bossids:
             if bossid in members:
                 bossmail = members[bossid]['mail']
+                # 上司のメールアドレスを宛先に追加(既に存在する場合は除く)
                 if bossmail not in mail:
                     mail.append(bossmail)
+                # 更に上司がいる場合は再帰的にエスカレーション
                 if members[bossid]['boss'] != "":
                     addBossMailRecursive(bossid, mail, members, levels, depth +1)
             else:
                 # memers.jsonにいない場合
-                logger.error('Not found cmpcode: ' + cmpcode + ' in members.')
+                logger.error(str(getCurLineNo())+' Not found cmpcode:' + cmpcode + ' in members.')
     return mail
 
 ####################################
@@ -456,7 +603,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
     from email.utils import formatdate
     from email import encoders
 
-    logger.info('START function sendResultMail')
+    logger.info(str(getCurLineNo())+' START function')
     # Gmail SMTP設定
     smtp_host = config.get('mail', 'smtp_host')
     smtp_port = config.get('mail', 'smtp_port')
@@ -494,7 +641,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
                 mail_cc = addBossMailRecursive(cmpcode, mail_cc, members, levels)
             else:
                 # memers.jsonにいない場合
-                logger.error('Not found cmpcode: ' + cmpcode + ' in members.')
+                logger.error(str(getCurLineNo())+' Not found cmpcode:' + cmpcode + ' in members.')
             
     # メールの内容を作成
     if attaches:
@@ -512,7 +659,7 @@ def sendResultMail(rets, mailsub, mailstr, attaches, levels=-1):
     # ファイル添付
     if attaches:
         for attach in attaches:
-            logger.info('attach file name {}'.format(attach))
+            logger.info(str(getCurLineNo())+' attach file name {}'.format(attach))
             attachment = MIMEBase('application', 'csv')
             with open(attach, mode='rb') as f:
                 attachment.set_payload(f.read())
@@ -555,9 +702,9 @@ def isHoliday(targetDate, syukujitsuPath):
             if jpholiday.is_holiday(targetDate.strftime('%Y-%m-%d')):
                 ret = True
     
-    except TypeError as e :
-        logger.error("function isHoliday: " + str(e))
-        raise (e)
+    except exceptions.TypeError as e :
+        logger.error(str(getCurLineNo())+' '+ str(e))
+        raise(e)
     else:
         return ret
 
@@ -573,14 +720,14 @@ def selectMember(id):
     Return
         なし
     """
-    logger.info('START function selectMember id:' + id)
+    logger.info(str(getCurLineNo())+' START function id:' + id)
     try:
         # フレーム指定
         driver.switch_to.parent_frame()
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
         # 個人選択ボタンクリック
-        driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
+        findElement('xpath','/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
         
         # サブウインドウにフォーカス移動
         wh = driver.window_handles
@@ -589,22 +736,13 @@ def selectMember(id):
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
 
-        # フレーム内描画待ち(タイムアウトが多いため追加)
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.NAME, 'lstSelemp'))
-            )
-        except exceptions.TimeoutException as e:
-            logger.error('画面表示タイムアウトエラー')
-            logger.error(e)
-            sys.exit()
-    
         # selectインスタンス作成
-        memberSelect = Select(driver.find_element_by_name('lstSelemp'))
+        memberSelect = Select(findElement('name','lstSelemp'))
         # 指定のvalue値のoptionを選択
         memberSelect.select_by_value(id)
         # 確定ボタンクリック
-        driver.find_element_by_id('buttonKAKUTEI').click()
+        findElement('id','buttonKAKUTEI').click()
+        time.sleep(FORCESLEEPSEC)
 
         # メインウィンドウにフォーカス移動
         driver.switch_to.window(wh[0])
@@ -615,8 +753,8 @@ def selectMember(id):
         driver.switch_to.frame(frames[1])
 
     except Exception as e:
-        logger.error(e)
-        raise
+        logger.error(str(getCurLineNo())+' '+ str(e))
+        raise(e)
 
 ####################################
 # 工数配分入力結果取得
@@ -630,14 +768,14 @@ def checkManHourRegist():
     Return
         rets: 工数配分入力結果での社員番号、氏名、時間不一致日の連想配列
     """
-    logger.info('START function checkManHourRegist')
+    logger.info(str(getCurLineNo())+' START function')
     try:
         # フレーム指定
         driver.switch_to.parent_frame()
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
         # 個人選択ボタンクリック
-        driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
+        findElement('xpath','/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
         
         # サブウインドウにフォーカス移動
         wh = driver.window_handles
@@ -646,25 +784,16 @@ def checkManHourRegist():
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
 
-        # フレーム内描画待ち(タイムアウトが多いため追加)
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.NAME, 'lstSelemp'))
-            )
-        except exceptions.TimeoutException as e:
-            logger.error('画面表示タイムアウトエラー')
-            logger.error(e)
-            raise
-    
         # selectインスタンス作成、メンバーリスト取得
         ids = []
-        memberSelect = Select(driver.find_element_by_name('lstSelemp'))
+        memberSelect = Select(findElement('name','lstSelemp'))
         members = memberSelect.options
         for member in members:
             ids.append(member.get_attribute("value"))
         memberSelect.select_by_index(0)
         # 確定ボタンクリック
-        driver.find_element_by_id('buttonKAKUTEI').click()
+        findElement('id','buttonKAKUTEI').click()
+        time.sleep(FORCESLEEPSEC)
         
         # メインウィンドウにフォーカス移動
         driver.switch_to.window(wh[0])
@@ -682,17 +811,20 @@ def checkManHourRegist():
             selectMember(id)
 
             # 対象期間のスタート区間まで戻る
-            nowTerm = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
+            nowTerm = findElement('xpath','/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
             nowTermStart = datetime.strptime(nowTerm[0],'%Y/%m/%d')
             while startdate < datetime.date(nowTermStart):
-                driver.find_element_by_name('PrevEmpCode').click()
+                findElement('name','PrevEmpCode','click').click()
+                waitLocate()
+                time.sleep(FORCESLEEPSEC)
                 # フレーム指定
                 driver.switch_to.parent_frame()
                 frames = driver.find_elements_by_xpath("//frame")
                 driver.switch_to.frame(frames[1])
                 # 現在表示中の開始日を取得
-                nowTerm = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
+                nowTerm = findElement('xpath', '/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
                 nowTermStart = datetime.strptime(nowTerm[0],'%Y/%m/%d')
+
             while enddate >= datetime.date(nowTermStart):
                 # 工数登録誤りチェック(対象期間終了まで繰り返し)
                 # テーブル要素の構成「/table/tbody/tr[X]/td[Y]」が以下ルールになっている
@@ -700,31 +832,51 @@ def checkManHourRegist():
                 # Y...3:1日目, 4:2日目,...,9:7日目
                 for i in range(3,10):
                     ret = {}
-                    wt = driver.find_element_by_xpath('//*[@id="xyw4100_form"]/table/tbody/tr[8]/td[' + str(i) +']/font').text
-                    total = driver.find_element_by_xpath('//*[@id="xyw4100_form"]/table/tbody/tr[16]/td[' + str(i) +']/font').text
+                    wt = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[8]/td[' + str(i) +']/font').text
+                    total = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[16]/td[' + str(i) +']/font').text
                     if wt != total:
-                        ret['氏名'] = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[3]').text
+                        ret['氏名'] = findElement('xpath', '/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[3]').text
                         ret['社員番号'] = id
-                        ret['日付'] = driver.find_element_by_xpath('//*[@id="xyw4100_form"]/table/tbody/tr[1]/td[' + str(i) +']').text
+                        ret['日付'] = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[1]/td[' + str(i) +']').text
                         ret['就業時間'] = wt
                         ret['合計'] = total
                         rets.append(ret)
-                        logging.info(ret)
+                        logger.info(ret)
                 # 次期間に移動
-                driver.find_element_by_name('NextEmpCode').click()
+                findElement('name', 'NextEmpCode', 'click').click()
+                waitLocate()
+                time.sleep(FORCESLEEPSEC)
                 # フレーム指定
                 driver.switch_to.parent_frame()
                 frames = driver.find_elements_by_xpath("//frame")
                 driver.switch_to.frame(frames[1])
                 # 現在表示中の開始日を取得
-                nowTerm = driver.find_element_by_xpath('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
+                nowTerm = findElement('xpath', '/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
                 nowTermStart = datetime.strptime(nowTerm[0],'%Y/%m/%d')
 
         return(rets)
 
     except Exception as e:
-        logger.error(e)
-        raise
+        logger.error(str(getCurLineNo())+' '+str(e))
+        raise(e)
+
+####################################
+# 工数配分入力結果取得
+####################################
+def cleanUpAfterError(error=None, webdriver=None):
+    """
+    Overview
+        例外エラー後の一連処理を行う。
+    Args
+        webdriver: 終了させるwebdriverインスタンス。未起動時は引数なし
+    Return
+        なし
+    """
+    if webdriver is not None:
+        webdriver.close()
+    if error is not None:
+        logger.exception(str(getCurLineNo())+' '+str(error))
+    sys.exit()
 
 ####################################
 # main
@@ -749,24 +901,23 @@ else:
 
 # 休日未実行設定の場合は休日判定
 if args.exholiday and isHoliday(nowDate, os.path.join(parentdir, 'syukujitsu.csv')):
-    logger.info('End halfway, because of holiday.')
-    sys.exit()
+    logger.info(str(getCurLineNo())+' 祝休日のため処理終了')
+    cleanUpAfterError()
 
 # config読み込み
 try:
     config = configparser.ConfigParser()
     config.read(CONFIGFILE, 'UTF-8')
 except Exception as e:
-    logger.error('configファイル"'+CONFIGFILE+'"が見つかりません。')
-    logger.error(e)
-    sys.exit()
+    logger.error(str(getCurLineNo())+' configファイル"'+CONFIGFILE+'"が見つかりません。')
+    cleanUpAfterError(e)
 
 # 開始日、終了日を取得
 startdate,enddate = getSpan(nowDate,mode)
 # 強制設定用
 #startdate = date(2018,11,1)
 #enddate = date(2019,8,31)
-logger.info("collectionTerm: "+str(startdate)+" - "+str(enddate))
+logger.info(str(getCurLineNo())+" collectionTerm: "+str(startdate)+" - "+str(enddate))
 
 # 結果CSVファイル名セット
 CSVNAME = 'resultAtdCheck_'+'m{:02}'.format(mode) + startdate.strftime('_%Y%m%d') + enddate.strftime('-%Y%m%d') \
@@ -777,45 +928,40 @@ CSVNAME = os.path.join(parentdir, CSVNAME)
 try:
     chromedriver_path = config.get('environment', 'chromedriver')
     driver = webdriver.Chrome(chromedriver_path)
+    driver.implicitly_wait(TIMEOUTSEC)
 except Exception as e:
-    logger.error("実行可能なWebDriver'"+chromedriver_path+"'が見つかりません。")
-    logger.error(e)
-    sys.exit()
+    logger.error(str(getCurLineNo())+" 実行可能なWebDriver'"+chromedriver_path+"'が見つかりません。")
+    cleanUpAfterError(e)
 
 ####################################
 # ログイン認証
 ####################################
 logger.info('START login')
 driver.get(config.get('siteinfo', 'url'))
-
-# メンテナンス中
-if driver.title == 'sorry page':
-    logger.error('サーバメンテナンス中により処理中止')
-    sys.exit()
-
 # 表示待ち
 try:
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_all_elements_located((By.NAME, "DataSource"))
-    )
-except exceptions.TimeoutException as e:
-    logger.error('画面表示タイムアウトエラー')
-    logger.error(e)
-    sys.exit()
+    waitLocate()
 
-# ID/PW入力
-driver.find_element_by_name("DataSource").send_keys(config.get('siteinfo', 'cp'))
-driver.find_element_by_name("LoginID").send_keys(config.get('siteinfo', 'id'))
-driver.find_element_by_name("PassWord").send_keys(config.get('siteinfo', 'pw'))
+    # メンテナンス中
+    if driver.title == 'sorry page':
+        logger.error(str(getCurLineNo())+' サーバメンテナンス中により処理中止')
+        cleanUpAfterError(None,driver)
 
-try:
+    # ID/PW入力
+    findElement('name','DataSource').send_keys(config.get('siteinfo', 'cp'))
+    findElement('name','LoginID').send_keys(config.get('siteinfo', 'id'))
+    findElement('name','PassWord').send_keys(config.get('siteinfo', 'pw'))
+
     # ログインボタンクリック
-    driver.find_element_by_name("LOGINBUTTON").click()
-    driver.find_element_by_tag_name("title")
-except exceptions.NoSuchElementException as e:
-    logger.error('ログインに失敗しました。cp:'+config.get('siteinfo', 'cp')+' id:'+config.get('siteinfo', 'id')+' pw:'+config.get('siteinfo', 'pw'))
-    logger.error(e)
-    sys.exit()
+    findElement('name','LOGINBUTTON').click()
+    waitLocate()
+except exceptions.TimeoutException as e:
+    cleanUpAfterError(e,driver)
+except exceptions.UnexpectedAlertPresentException as e:
+    logger.error(str(getCurLineNo())+' ログインに失敗しました。cp:'+config.get('siteinfo', 'cp')+' id:'+config.get('siteinfo', 'id')+' pw:'+config.get('siteinfo', 'pw'))
+    cleanUpAfterError(e,driver)
+except Exception as e:
+    cleanUpAfterError(e,driver)
 
 ####################################
 # チェック結果取得
@@ -824,50 +970,59 @@ except exceptions.NoSuchElementException as e:
 try:
     menuClick(config.get('modeinfo_'+str(mode), 'CLICKMENU'))
 except Exception as e:
-    logger.error('メニュークリック失敗')
-    logger.error(str(e))
-    sys.exit()
+    logger.error(str(getCurLineNo())+' メニュークリック失敗')
+    cleanUpAfterError(e,driver)
 
-# 残業時間取得
-if mode == 1:
-    retsOver = getOverWork()
-    # メール送信の場合は合計時間が閾値以上のもののみリストに追加    
-    if args.output == 1:
-        OVERWORK_THRESHOLD = config.getint('modeinfo_'+str(mode), 'OVERWORK_THRESHOLD')
-    else:
-        OVERWORK_THRESHOLD = 0
-    rets = []
-    for ret in retsOver:
-        if int(ret['残業合計'].split(":")[0]) >= OVERWORK_THRESHOLD:
-            logger.info(ret)
-            rets.append(ret)
+try:
+    # 残業時間取得
+    if mode == 1:
+        retsOver = getOverWork()
+        # メール送信の場合は合計時間が閾値以上のもののみリストに追加    
+        if args.output == 1:
+            OVERWORK_THRESHOLD = config.getint('modeinfo_'+str(mode), 'OVERWORK_THRESHOLD')
+        else:
+            OVERWORK_THRESHOLD = 0
+        rets = []
+        for ret in retsOver:
+            if int(ret['残業合計'].split(":")[0]) >= OVERWORK_THRESHOLD:
+                logger.info(str(getCurLineNo())+' '+ret)
+                rets.append(ret)
 
-# 打ち忘れチェックリスト取得
-elif mode == 2:
-    rets = checkStampMiss()
+    # 打ち忘れチェックリスト取得
+    elif mode == 2:
+        rets = checkStampMiss()
 
-# 工数登録結果取得
-elif mode == 3:
-    rets = checkManHourRegist()
+    # 工数登録結果取得
+    elif mode == 3:
+        rets = checkManHourRegist()
+except Exception as e:
+    logger.error(str(getCurLineNo())+' 結果取得失敗')
+    cleanUpAfterError(e,driver)
 
-# 無視リスト対象者削除
-rets = deleteIgnoreMember(rets)
+####################################
+# チェック結果アウトプット
+####################################
+try:
+    # 無視リスト対象者削除
+    rets = deleteIgnoreMember(rets)
 
-# 結果が1件以上あったらアウトプット
-if len(rets) > 0:
-    # メール送信
-    if args.output == 1:
-        sendResultMail(rets,
-        config.get('modeinfo_'+str(mode), 'MAILTITLE')+' '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
-        config.get('modeinfo_'+str(mode), 'MAILBODY')+'\n\n',
-        #[CSVNAME],
-        False,
-        int(config.get('modeinfo_'+str(mode), 'MAIL_ESC_LEVEL')))
-    # CSVファイル出力
-    elif args.output == 2:
-        csvOutput(rets,CSVNAME)
+    # 結果が1件以上あったらアウトプット
+    if len(rets) > 0:
+        # メール送信
+        if args.output == 1:
+            sendResultMail(rets,
+            config.get('modeinfo_'+str(mode), 'MAILTITLE')+' '+startdate.strftime('%m/%d-')+enddate.strftime('%m/%d'),
+            config.get('modeinfo_'+str(mode), 'MAILBODY')+'\n\n',
+            #[CSVNAME],
+            False,
+            int(config.get('modeinfo_'+str(mode), 'MAIL_ESC_LEVEL')))
+        # CSVファイル出力
+        elif args.output == 2:
+            csvOutput(rets,CSVNAME)
+except Exception as e:
+    logger.error(str(getCurLineNo())+' 結果送信失敗')
+    cleanUpAfterError(e,driver)
 
 # 終了処理
-driver.close()
 logger.info("---- COMPLETE "+__file__+"  ----")
-exit()
+cleanUpAfterError(None,driver)
