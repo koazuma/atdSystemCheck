@@ -985,7 +985,7 @@ try:
         rets = []
         for ret in retsOver:
             if int(ret['残業合計'].split(":")[0]) >= OVERWORK_THRESHOLD:
-                logger.info(str(getCurLineNo())+' '+ret)
+                logger.info(str(getCurLineNo())+' '+str(ret))
                 rets.append(ret)
 
     # 打ち忘れチェックリスト取得
