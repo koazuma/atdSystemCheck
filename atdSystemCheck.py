@@ -263,7 +263,6 @@ def getOverWork():
     NAME = "氏名"
     CMPID = "社員番号"
     TOTALTIME = "残業合計"
-    WORKDAYS = "出勤日数"
     FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
     EMPTY_MARK = "----" # 稼働時間ゼロ表示
     #----------------------------------------
@@ -294,7 +293,6 @@ def getOverWork():
             for v in itemids.keys():
                 wt[v] = relativedelta()
             wt[TOTALTIME] = relativedelta()
-            wt[WORKDAYS] = 0
 
             # 終了日まで指定日をインクリメントしながらデータ取得
             while curdate <= enddate:
@@ -334,8 +332,6 @@ def getOverWork():
                         workTime = findElement('xpath',"//td[@id='"+tgtid+"']").get_attribute("DefaultValue")
                         if workTime == EMPTY_MARK:
                             workTime = "00:00"
-                        else:
-                            wt[WORKDAYS] += 1
                         wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
                         wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
                 except (exceptions.NoSuchElementException, exceptions.TimeoutException) as e:
@@ -346,8 +342,6 @@ def getOverWork():
             for key in wt.keys():
                 if type(wt[key]) is relativedelta:
                     wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
-            # 出勤日数をstring型に変換
-            wt[WORKDAYS] = str(wt[WORKDAYS])
             # 集計結果を追加
             rets.append(wt)
             logger.info(str(getCurLineNo())+' 集計結果追加 '+str(wt))
