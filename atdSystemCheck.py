@@ -4,6 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.alert import Alert
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common import exceptions
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
@@ -26,12 +27,9 @@ CONFIGFILE = os.path.join(parentdir, 'setting.ini')
 EMPLOYEE_LIST = os.path.join(parentdir, 'members.json')
 # タイムアウト設定
 TIMEOUTSEC = 10
-FORCESLEEPSEC = 3
+FORCESLEEPSEC = 5
 
 # log設定
-#logging.basicConfig(level=logger.DEBUG,
-#    filename=__file__ + '.log',
-#    format="%(asctime)s %(process)d %(name)s %(levelname)s %(message)s")
 getLogger().setLevel(DEBUG)
 logger = getLogger(__name__)
 
@@ -263,7 +261,6 @@ def getOverWork():
     NAME = "氏名"
     CMPID = "社員番号"
     TOTALTIME = "残業合計"
-    WORKDAYS = "出勤日数"
     FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
     EMPTY_MARK = "----" # 稼働時間ゼロ表示
     #----------------------------------------
@@ -294,7 +291,6 @@ def getOverWork():
             for v in itemids.keys():
                 wt[v] = relativedelta()
             wt[TOTALTIME] = relativedelta()
-            wt[WORKDAYS] = 0
 
             # 終了日まで指定日をインクリメントしながらデータ取得
             while curdate <= enddate:
@@ -334,8 +330,6 @@ def getOverWork():
                         workTime = findElement('xpath',"//td[@id='"+tgtid+"']").get_attribute("DefaultValue")
                         if workTime == EMPTY_MARK:
                             workTime = "00:00"
-                        else:
-                            wt[WORKDAYS] += 1
                         wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
                         wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
                 except (exceptions.NoSuchElementException, exceptions.TimeoutException) as e:
@@ -346,8 +340,6 @@ def getOverWork():
             for key in wt.keys():
                 if type(wt[key]) is relativedelta:
                     wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
-            # 出勤日数をstring型に変換
-            wt[WORKDAYS] = str(wt[WORKDAYS])
             # 集計結果を追加
             rets.append(wt)
             logger.info(str(getCurLineNo())+' 集計結果追加 '+str(wt))
@@ -459,6 +451,7 @@ def checkStampMiss():
         startYMD = findElement('name', 'StartYMD')
         logger.info(str(getCurLineNo())+' startYMD:'+startYMD.get_attribute('value')+' startdate:'+startdate.strftime('%Y%m%d'))
         if startYMD.get_attribute('value') != startdate.strftime('%Y/%m/%d'):
+            time.sleep(FORCESLEEPSEC)
             startYMD.clear()
             startYMD.send_keys(startdate.strftime('%Y%m%d'))
             endYMD = findElement('name', 'EndYMD')
@@ -492,6 +485,8 @@ def checkStampMiss():
         while True:
             # 初期化
             ret = {}
+            # スクロール用action生成
+            actions = ActionChains(driver)
             # 対象行の有無チェック
             rowid = TRIDBASE + str(row)
             try:
@@ -509,6 +504,11 @@ def checkStampMiss():
             for key in itemids.keys():
                 targetid = TDIDBASE + str(row) + '-' + itemids[key]
                 ret[key] = driver.find_element_by_id(targetid).text
+                # 取得できていない場合はスクロール
+                if ret[key] == '':
+                    actions.move_to_element(driver.find_element_by_id(targetid))
+                    actions.perform()
+                    ret[key] = driver.find_element_by_id(targetid).text
 
             # 次行にインクリメント
             logger.info(ret)
@@ -955,6 +955,7 @@ try:
     # ログインボタンクリック
     findElement('name','LOGINBUTTON').click()
     waitLocate()
+    time.sleep(1)
 except exceptions.TimeoutException as e:
     cleanUpAfterError(e,driver)
 except exceptions.UnexpectedAlertPresentException as e:
