@@ -913,6 +913,7 @@ except Exception as e:
 # タイムアウト設定を取得
 TIMEOUTSEC = int(config.get('environment', 'TIMEOUTSEC'))
 FORCESLEEPSEC = int(config.get('environment', 'FORCESLEEPSEC'))
+ERRORRETRYCOUNT = int(config.get('environment', 'ERRORRETRYCOUNT'))
 
 # 開始日、終了日を取得
 startdate,enddate = getSpan(nowDate,mode)
