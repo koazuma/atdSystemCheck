@@ -8,7 +8,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common import exceptions
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
-from logging import getLogger, StreamHandler, FileHandler, Formatter, DEBUG, INFO, WARNING, ERROR
+from logging import getLogger, StreamHandler, FileHandler, Formatter, DEBUG, INFO, WARNING, ERROR, handlers
 import sys
 import os
 import csv
@@ -25,16 +25,13 @@ parentdir = os.path.dirname(__file__)
 CONFIGFILE = os.path.join(parentdir, 'setting.ini')
 # 社員リスト
 EMPLOYEE_LIST = os.path.join(parentdir, 'members.json')
-# タイムアウト設定
-TIMEOUTSEC = 10
-FORCESLEEPSEC = 5
 
 # log設定
 getLogger().setLevel(DEBUG)
 logger = getLogger(__name__)
 
 # ログファイル出力用
-filehandler = FileHandler(filename=__file__ + '.log')
+filehandler = handlers.RotatingFileHandler(filename=__file__ + '.log', maxBytes=1024*1024, backupCount=5)
 filehandler.setLevel(DEBUG)
 filehandler.setFormatter(Formatter("%(asctime)s %(process)d %(name)s %(levelname)s %(message)s"))
 logger.addHandler(filehandler)
@@ -300,7 +297,7 @@ def getOverWork():
                     try:
                         dtElm = findElement('id','CmbYM')
                         Select(dtElm).select_by_value(curdate.strftime('%Y%m'))
-                        logger.info(str(getCurLineNo())+' 指定月変更:'+curdate.strftime('%Y%m'))
+                        logger.debug(str(getCurLineNo())+' 指定月変更:'+curdate.strftime('%Y%m'))
                         findElement('name','srchbutton','click').click()
                         waitLocate()
                         # WebDriverWaitで例外エラーを止める事が出来なかったため、止む無くsleepを使用
@@ -363,7 +360,7 @@ def getOverWork():
                 # WebDriverWaitで例外エラーを止める事が出来なかったため、止む無くsleepを使用
                 time.sleep(FORCESLEEPSEC)
                 
-                logger.info(str(getCurLineNo())+' 対象社員変更')
+                logger.debug(str(getCurLineNo())+' 対象社員変更')
             else :
                 # 次が選択不可ならループ終了
                 logger.info(str(getCurLineNo())+' 対象社員終了')
@@ -438,6 +435,7 @@ def checkStampMiss():
         findElement('id', 'AllSel').click()
         # 確定ボタンクリック
         findElement('id', 'buttonKAKUTEI').click()
+        time.sleep(FORCESLEEPSEC)
         
         # メインウィンドウにフォーカス移動
         driver.switch_to.window(wh[0])
@@ -450,8 +448,9 @@ def checkStampMiss():
         # 期間指定
         startYMD = findElement('name', 'StartYMD')
         logger.info(str(getCurLineNo())+' startYMD:'+startYMD.get_attribute('value')+' startdate:'+startdate.strftime('%Y%m%d'))
-        if startYMD.get_attribute('value') != startdate.strftime('%Y/%m/%d'):
+        if startYMD.get_attribute('value') != startdate.strftime('%Y%m%d'):
             time.sleep(FORCESLEEPSEC)
+            startYMD = findElement('name', 'StartYMD')
             startYMD.clear()
             startYMD.send_keys(startdate.strftime('%Y%m%d'))
             endYMD = findElement('name', 'EndYMD')
@@ -511,14 +510,14 @@ def checkStampMiss():
                     ret[key] = driver.find_element_by_id(targetid).text
 
             # 次行にインクリメント
-            logger.info(ret)
+            logger.info(str(getCurLineNo())+' '+str(ret))
             rets.append(ret)
             row += 1
 
         return(rets)
 
     except Exception as e:
-        logger.error('想定外の例外エラー発生')
+        logger.error(str(getCurLineNo())+' 想定外の例外エラー発生')
         raise(e)
 
 ####################################
@@ -912,6 +911,11 @@ except Exception as e:
     logger.error(str(getCurLineNo())+' configファイル"'+CONFIGFILE+'"が見つかりません。')
     cleanUpAfterError(e)
 
+# タイムアウト設定を取得
+TIMEOUTSEC = int(config.get('environment', 'TIMEOUTSEC'))
+FORCESLEEPSEC = int(config.get('environment', 'FORCESLEEPSEC'))
+ERRORRETRYCOUNT = int(config.get('environment', 'ERRORRETRYCOUNT'))
+
 # 開始日、終了日を取得
 startdate,enddate = getSpan(nowDate,mode)
 # 強制設定用
@@ -936,7 +940,7 @@ except Exception as e:
 ####################################
 # ログイン認証
 ####################################
-logger.info('START login')
+logger.info(str(getCurLineNo())+' START login')
 driver.get(config.get('siteinfo', 'url'))
 # 表示待ち
 try:
