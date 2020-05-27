@@ -435,6 +435,7 @@ def checkStampMiss():
         findElement('id', 'AllSel').click()
         # 確定ボタンクリック
         findElement('id', 'buttonKAKUTEI').click()
+        time.sleep(FORCESLEEPSEC)
         
         # メインウィンドウにフォーカス移動
         driver.switch_to.window(wh[0])
@@ -446,8 +447,8 @@ def checkStampMiss():
 
         # 期間指定
         startYMD = findElement('name', 'StartYMD')
-        logger.info(str(getCurLineNo())+' startYMD:'+startYMD.get_attribute('value')+' startdate:'+startdate.strftime('%Y/%m/%d'))
-        if startYMD.get_attribute('value') != startdate.strftime('%Y/%m/%d'):
+        logger.info(str(getCurLineNo())+' startYMD:'+startYMD.get_attribute('value')+' startdate:'+startdate.strftime('%Y%m%d'))
+        if startYMD.get_attribute('value') != startdate.strftime('%Y%m%d'):
             time.sleep(FORCESLEEPSEC)
             startYMD = findElement('name', 'StartYMD')
             startYMD.clear()
@@ -509,14 +510,14 @@ def checkStampMiss():
                     ret[key] = driver.find_element_by_id(targetid).text
 
             # 次行にインクリメント
-            logger.info(ret)
+            logger.info(str(getCurLineNo())+' '+str(ret))
             rets.append(ret)
             row += 1
 
         return(rets)
 
     except Exception as e:
-        logger.error('想定外の例外エラー発生')
+        logger.error(str(getCurLineNo())+' 想定外の例外エラー発生')
         raise(e)
 
 ####################################
