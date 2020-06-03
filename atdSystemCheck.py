@@ -756,6 +756,32 @@ def selectMember(id):
         raise(e)
 
 ####################################
+# 期間チェック
+####################################
+def isContainDate(mmdd, startdate, enddate):
+    """
+    Overview
+        対象日付が対象期間内かチェックする。start,endと同日は期間内とする。
+    Args
+        mmdd string : MM/DD形式の文字列
+        startdate date
+        enddate date
+    Return
+        ret: 期間内ならtrue、期間外ならfalse
+    """
+    logger.debug(str(getCurLineNo())+' START function mmdd:'+mmdd+' startdate:'+str(startdate)+' enddate:'+str(enddate))
+    try:
+        if startdate.strftime('%m/%d') <= mmdd and enddate.strftime('%m/%d') >= mmdd:
+            ret = True
+        else:
+            ret = False
+        return ret
+
+    except Exception as e:
+        logger.error(str(getCurLineNo())+' '+str(e))
+        raise(e)
+
+####################################
 # 工数配分入力結果取得
 ####################################
 def checkManHourRegist():
@@ -831,9 +857,10 @@ def checkManHourRegist():
                 # Y...3:1日目, 4:2日目,...,9:7日目
                 for i in range(3,10):
                     ret = {}
+                    mmdd = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[1]/td[' + str(i) +']').text
                     wt = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[8]/td[' + str(i) +']/font').text
                     total = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[16]/td[' + str(i) +']/font').text
-                    if wt != total:
+                    if wt != total and isContainDate(mmdd, startdate, enddate):
                         ret['氏名'] = findElement('xpath', '/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[3]').text
                         ret['社員番号'] = id
                         ret['日付'] = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[1]/td[' + str(i) +']').text
@@ -860,7 +887,7 @@ def checkManHourRegist():
         raise(e)
 
 ####################################
-# 工数配分入力結果取得
+# 最終エラー処理
 ####################################
 def cleanUpAfterError(error=None, webdriver=None):
     """
