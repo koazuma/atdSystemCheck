@@ -280,6 +280,11 @@ def getOverWork():
             cmpid = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
             logger.info(str(getCurLineNo())+' 氏名:'+name+' 社員番号:'+cmpid)
 
+            # 対象者フィルタオプション有りで未指定の場合スキップ
+            if cmpcodefilter is not None and int(cmpid) not in cmpcodefilter:
+                logger.info(str(getCurLineNo())+' 対象者スキップ')
+                continue
+
             # 指定日、表示月、稼働時間を初期化
             curdate = startdate
             wt = {}
@@ -756,6 +761,32 @@ def selectMember(id):
         raise(e)
 
 ####################################
+# 期間チェック
+####################################
+def isContainDate(mmdd, startdate, enddate):
+    """
+    Overview
+        対象日付が対象期間内かチェックする。start,endと同日は期間内とする。
+    Args
+        mmdd string : MM/DD形式の文字列
+        startdate date
+        enddate date
+    Return
+        ret: 期間内ならtrue、期間外ならfalse
+    """
+    logger.debug(str(getCurLineNo())+' START function mmdd:'+mmdd+' startdate:'+str(startdate)+' enddate:'+str(enddate))
+    try:
+        if startdate.strftime('%m/%d') <= mmdd and enddate.strftime('%m/%d') >= mmdd:
+            ret = True
+        else:
+            ret = False
+        return ret
+
+    except Exception as e:
+        logger.error(str(getCurLineNo())+' '+str(e))
+        raise(e)
+
+####################################
 # 工数配分入力結果取得
 ####################################
 def checkManHourRegist():
@@ -788,7 +819,9 @@ def checkManHourRegist():
         memberSelect = Select(findElement('name','lstSelemp'))
         members = memberSelect.options
         for member in members:
-            ids.append(member.get_attribute("value"))
+            # 対象者フィルタオプションなし、またはありで指定されている場合、メンバーに追加
+            if cmpcodefilter is None or int(member.get_attribute('value')) in cmpcodefilter:
+                ids.append(member.get_attribute('value'))
         memberSelect.select_by_index(0)
         # 確定ボタンクリック
         findElement('id','buttonKAKUTEI').click()
@@ -831,9 +864,10 @@ def checkManHourRegist():
                 # Y...3:1日目, 4:2日目,...,9:7日目
                 for i in range(3,10):
                     ret = {}
+                    mmdd = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[1]/td[' + str(i) +']').text
                     wt = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[8]/td[' + str(i) +']/font').text
                     total = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[16]/td[' + str(i) +']/font').text
-                    if wt != total:
+                    if wt != total and isContainDate(mmdd, startdate, enddate):
                         ret['氏名'] = findElement('xpath', '/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[3]').text
                         ret['社員番号'] = id
                         ret['日付'] = findElement('xpath', '//*[@id="xyw4100_form"]/table/tbody/tr[1]/td[' + str(i) +']').text
@@ -860,7 +894,7 @@ def checkManHourRegist():
         raise(e)
 
 ####################################
-# 工数配分入力結果取得
+# 最終エラー処理
 ####################################
 def cleanUpAfterError(error=None, webdriver=None):
     """
@@ -886,6 +920,7 @@ argparser.add_argument('-m', '--mode', type=int, choices=[1,2,3], help='チェ�
 argparser.add_argument('-o', '--output', type=int, choices=[1,2], help='出力タイプ 1:メール送信 2:CSVファイル出力', required=True)
 argparser.add_argument('-d', '--date', type=lambda s: datetime.strptime(s, '%Y%m%d'), help='yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。')
 argparser.add_argument('-e', '--exholiday', action='store_true', help='土日祝日の場合はチェックをしない。')
+argparser.add_argument('-c', '--cmpcodefilter', type=int, nargs='*', help='対象の社員番号を指定。ブランク区切りで複数指定可能。')
 
 # 引数パース
 args = argparser.parse_args()
@@ -902,6 +937,9 @@ else:
 if args.exholiday and isHoliday(nowDate, os.path.join(parentdir, 'syukujitsu.csv')):
     logger.info(str(getCurLineNo())+' 祝休日のため処理終了')
     cleanUpAfterError()
+
+# 社員番号フィルタ取得
+cmpcodefilter = args.cmpcodefilter
 
 # config読み込み
 try:
