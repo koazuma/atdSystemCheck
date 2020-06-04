@@ -280,6 +280,11 @@ def getOverWork():
             cmpid = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
             logger.info(str(getCurLineNo())+' 氏名:'+name+' 社員番号:'+cmpid)
 
+            # 対象者フィルタオプション有りで未指定の場合スキップ
+            if cmpcodefilter is not None and int(cmpid) not in cmpcodefilter:
+                logger.info(str(getCurLineNo())+' 対象者スキップ')
+                continue
+
             # 指定日、表示月、稼働時間を初期化
             curdate = startdate
             wt = {}
@@ -814,7 +819,9 @@ def checkManHourRegist():
         memberSelect = Select(findElement('name','lstSelemp'))
         members = memberSelect.options
         for member in members:
-            ids.append(member.get_attribute("value"))
+            # 対象者フィルタオプションなし、またはありで指定されている場合、メンバーに追加
+            if cmpcodefilter is None or int(member.get_attribute('value')) in cmpcodefilter:
+                ids.append(member.get_attribute('value'))
         memberSelect.select_by_index(0)
         # 確定ボタンクリック
         findElement('id','buttonKAKUTEI').click()
@@ -913,6 +920,7 @@ argparser.add_argument('-m', '--mode', type=int, choices=[1,2,3], help='チェ�
 argparser.add_argument('-o', '--output', type=int, choices=[1,2], help='出力タイプ 1:メール送信 2:CSVファイル出力', required=True)
 argparser.add_argument('-d', '--date', type=lambda s: datetime.strptime(s, '%Y%m%d'), help='yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。')
 argparser.add_argument('-e', '--exholiday', action='store_true', help='土日祝日の場合はチェックをしない。')
+argparser.add_argument('-c', '--cmpcodefilter', type=int, nargs='*', help='対象の社員番号を指定。ブランク区切りで複数指定可能。')
 
 # 引数パース
 args = argparser.parse_args()
@@ -929,6 +937,9 @@ else:
 if args.exholiday and isHoliday(nowDate, os.path.join(parentdir, 'syukujitsu.csv')):
     logger.info(str(getCurLineNo())+' 祝休日のため処理終了')
     cleanUpAfterError()
+
+# 社員番号フィルタ取得
+cmpcodefilter = args.cmpcodefilter
 
 # config読み込み
 try:

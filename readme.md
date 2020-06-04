@@ -209,14 +209,22 @@ yyyymmddの日付つきでdオプションを指定すると、指定日に実�
 python atdSystemCheck.py -m 1 -o 1 -d 20190401
 ```
 
-### -e --exholiday
+#### -e --exholiday
 
-eオプションを指定すると土日祝日は実行しなくなる。
-eオプションを指定する場合は以下からDL可能な内閣府配布の祝日リストを同ディレクトリに格納している事を前提とする。
+eオプションを指定すると土日祝日は実行しなくなります。
+eオプションを指定する場合は以下からDL可能な内閣府配布の祝日リストを同ディレクトリに格納している事が前提となります。
 <https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html#syukujitu>
 
 ```batch
 python atdSystemCheck.py -m 2 -o 1 -e
+```
+
+#### -c --cmpcodefilter
+
+社員番号付きで指定すると、指定した社員のみチェックされます。ブランク区切りで複数指定可能。mode1,3のみ効果があり、mode2は指定しても挙動は変わりません。
+
+```batch
+python atdSystemCheck.py -m 1 -o 1 -c 111 286
 ```
 
 ## 著作者
