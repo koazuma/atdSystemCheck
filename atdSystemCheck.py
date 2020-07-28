@@ -241,135 +241,181 @@ def waitLocate():
         raise(e)
 
 ####################################
+# メンバーリスト取得
+####################################
+def getMemberList(xp):
+    """
+    Overview
+        サブウインドウからメンバー一覧を取得する
+    Args
+        xp: 個人選択のXPATH
+    Return
+        ids: 社員番号リスト
+    """
+    logger.info(str(getCurLineNo())+' START function')
+    try:
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+        # 個人選択ボタンクリック
+        findElement('xpath', xp).click()
+        
+        # サブウインドウにフォーカス移動
+        wh = driver.window_handles
+        driver.switch_to.window(wh[1])
+        # フレーム指定
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+
+        # selectインスタンス作成、メンバーリスト取得
+        ids = []
+        memberSelect = Select(findElement('name','lstSelemp'))
+        members = memberSelect.options
+        for member in members:
+            # 対象者フィルタオプションなし、またはありでかつ指定されている場合、メンバーに追加
+            if cmpcodefilter is None or int(member.get_attribute('value')) in cmpcodefilter:
+                ids.append(member.get_attribute('value'))
+        memberSelect.select_by_index(0)
+        # 確定ボタンクリック
+        findElement('id','buttonKAKUTEI').click()
+        time.sleep(FORCESLEEPSEC)
+        
+        # メインウィンドウにフォーカス移動
+        driver.switch_to.window(wh[0])
+
+        # フレーム指定
+        driver.switch_to.parent_frame()
+        frames = driver.find_elements_by_xpath("//frame")
+        driver.switch_to.frame(frames[1])
+
+    except Exception as e:
+        logger.error(str(getCurLineNo())+' 想定外の例外エラー発生')
+        raise(e)
+
+    return ids
+
+####################################
 # 就業週報月報画面 : 残業時間取得
 ####################################
 def getOverWork():
-    #----- 就業週報月報のtdタグidルール -----
-    # 各tdタグは以下のような命名規則になっている
-    # grdXyw1500g-rc-{日付-1}-{列ID}
-    DAILYID_F = "grdXyw1500g-rc-" # 日毎のid先頭部分
-    # 列ID(列数-1)
-    itemids = {
-        "法定外勤":"13",
-        "深夜残業":"15",
-        "休日勤務":"16",
-        "休日深夜":"17"
-    }
-    NAME = "氏名"
-    CMPID = "社員番号"
-    TOTALTIME = "残業合計"
-    FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
-    EMPTY_MARK = "----" # 稼働時間ゼロ表示
-    #----------------------------------------
+    """
+    Overview
+        就業週報月報画面より残業時間を集計する
+    Args
+        なし
+    Return
+        rets: 氏名、社員番号、各種残業時間、合計残業時間の連想配列のリスト
+    """
     logger.info(str(getCurLineNo())+' START function')
-    # フレーム指定
-    driver.switch_to.parent_frame()
-    frames = driver.find_elements_by_xpath("//frame")
-    driver.switch_to.frame(frames[1])
+    try:
+        # メンバー取得
+        ids = getMemberList('/html/body/form/table/tbody/tr[4]/td/table/tbody/tr/td[8]/input')
 
-    # 表示月、取得データを初期化
-    dispmonth = 0
-    rets = []
+        #----- 就業週報月報のtdタグidルール -----
+        # 各tdタグは以下のような命名規則になっている
+        # grdXyw1500g-rc-{日付-1}-{列ID}
+        DAILYID_F = "grdXyw1500g-rc-" # 日毎のid先頭部分
+        # 列ID(列数-1)
+        itemids = {
+            "法定外勤":"13",
+            "深夜残業":"15",
+            "休日勤務":"16",
+            "休日深夜":"17"
+        }
+        NAME = "氏名"
+        CMPID = "社員番号"
+        TOTALTIME = "残業合計"
+        FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
+        EMPTY_MARK = "----" # 稼働時間ゼロ表示
+        #----------------------------------------
 
-    while True:
-        
-        try:
-            # 氏名、社員番号取得
-            logger.debug(str(getCurLineNo())+' 氏名、社員番号取得')
-            name = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
-            cmpid = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
-            logger.info(str(getCurLineNo())+' 氏名:'+name+' 社員番号:'+cmpid)
+        # 表示月、取得データを初期化
+        dispmonth = 0
+        rets = []
 
-            # 対象者フィルタオプション有りで未指定の場合スキップ
-            if cmpcodefilter is not None and int(cmpid) not in cmpcodefilter:
-                logger.info(str(getCurLineNo())+' 対象者スキップ')
-                continue
+        # メンバー指定
+        for id in ids:
+            try:
+                selectMember(id, '/html/body/form/table/tbody/tr[4]/td/table/tbody/tr/td[8]/input')
 
-            # 指定日、表示月、稼働時間を初期化
-            curdate = startdate
-            wt = {}
-            wt[NAME] = name
-            wt[CMPID] = cmpid
-            for v in itemids.keys():
-                wt[v] = relativedelta()
-            wt[TOTALTIME] = relativedelta()
+                # 氏名、社員番号取得
+                logger.debug(str(getCurLineNo())+' 氏名、社員番号取得')
+                name = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
+                cmpid = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[6]").text
+                logger.info(str(getCurLineNo())+' 氏名:'+name+' 社員番号:'+cmpid)
 
-            # 終了日まで指定日をインクリメントしながらデータ取得
-            while curdate <= enddate:
-                logger.debug(str(getCurLineNo())+' 対象日:'+str(curdate))
-                # 月を指定して月報を表示(初回および月が変わった時のみ)
-                if curdate.month != dispmonth:
+                # 指定日、表示月、稼働時間を初期化
+                curdate = startdate
+                wt = {}
+                wt[NAME] = name
+                wt[CMPID] = cmpid
+                for v in itemids.keys():
+                    wt[v] = relativedelta()
+                wt[TOTALTIME] = relativedelta()
+
+                # 終了日まで指定日をインクリメントしながらデータ取得
+                while curdate <= enddate:
+                    logger.debug(str(getCurLineNo())+' 対象日:'+str(curdate))
+                    # 月を指定して月報を表示(初回および月が変わった時のみ)
+                    if curdate.month != dispmonth:
+                        try:
+                            dtElm = findElement('id','CmbYM')
+                            Select(dtElm).select_by_value(curdate.strftime('%Y%m'))
+                            logger.debug(str(getCurLineNo())+' 指定月変更:'+curdate.strftime('%Y%m'))
+                            findElement('name','srchbutton','click').click()
+                            waitLocate()
+                            # WebDriverWaitで例外エラーを止める事が出来なかったため、止む無くsleepを使用
+                            time.sleep(FORCESLEEPSEC)
+                            dispmonth = curdate.month
+                        except exceptions.TimeoutException as e:
+                            logger.error(str(getCurLineNo())+' 画面表示タイムアウトエラー')
+                            raise(e)
+                        except exceptions.UnexpectedAlertPresentException as e:
+                            # 入社月の前月対策
+                            logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象期間変更 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
+                            continue
+
+                    # 対象日の指定列のデータを取得
                     try:
-                        dtElm = findElement('id','CmbYM')
-                        Select(dtElm).select_by_value(curdate.strftime('%Y%m'))
-                        logger.debug(str(getCurLineNo())+' 指定月変更:'+curdate.strftime('%Y%m'))
-                        findElement('name','srchbutton','click').click()
-                        waitLocate()
-                        # WebDriverWaitで例外エラーを止める事が出来なかったため、止む無くsleepを使用
-                        time.sleep(FORCESLEEPSEC)
-                        dispmonth = curdate.month
-                    except exceptions.TimeoutException as e:
-                        logger.error(str(getCurLineNo())+' 画面表示タイムアウトエラー')
-                        raise(e)
-                    except exceptions.UnexpectedAlertPresentException as e:
-                        # 入社月の前月対策
-                        logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象期間変更 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
-                        continue
+                        # 対象日を確認
+                        tgtdateid = DAILYID_F + str(int(curdate.strftime('%d')) -1) + '-0'
+                        tgtdate = findElement('xpath',"//td[@id='"+tgtdateid+"']").get_attribute("DefaultValue")
+                        if tgtdate != curdate.strftime('%m/%d') :
+                            logger.error(str(getCurLineNo())+' 対象日相違エラー。 tgtdate:'+tgtdate+' curdate:'+curdate.strftime('%m/%d'))
+                            raise(ValueError)
 
-                # 対象日の指定列のデータを取得
-                try:
-                    # 対象日を確認
-                    tgtdateid = DAILYID_F + str(int(curdate.strftime('%d')) -1) + '-0'
-                    tgtdate = findElement('xpath',"//td[@id='"+tgtdateid+"']").get_attribute("DefaultValue")
-                    if tgtdate != curdate.strftime('%m/%d') :
-                        logger.error(str(getCurLineNo())+' 対象日相違エラー。 tgtdate:'+tgtdate+' curdate:'+curdate.strftime('%m/%d'))
-                        raise(ValueError)
-
-                    for key in itemids.keys():
-                        # 対象日のtdタグのidを作成
-                        tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
-                        # 対象日の稼働時間を取得
-                        workTime = findElement('xpath',"//td[@id='"+tgtid+"']").get_attribute("DefaultValue")
-                        if workTime == EMPTY_MARK:
-                            workTime = "00:00"
-                        wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-                        wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
-                except (exceptions.NoSuchElementException, exceptions.TimeoutException) as e:
-                        logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象日データ取得 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
-                # 対象日のデータ取得を終えたらインクリメントして翌日へ
-                curdate += relativedelta(days=1)
-            # reletivedelta型をHH:MM型の文字列に変換
-            for key in wt.keys():
-                if type(wt[key]) is relativedelta:
-                    wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
-            # 集計結果を追加
-            rets.append(wt)
-            logger.info(str(getCurLineNo())+' 集計結果追加 '+str(wt))
+                        for key in itemids.keys():
+                            # 対象日のtdタグのidを作成
+                            tgtid = DAILYID_F + str(int(curdate.strftime("%d")) -1) + "-" + itemids[key]
+                            # 対象日の稼働時間を取得
+                            workTime = findElement('xpath',"//td[@id='"+tgtid+"']").get_attribute("DefaultValue")
+                            if workTime == EMPTY_MARK:
+                                workTime = "00:00"
+                            wt[key] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+                            wt[TOTALTIME] += relativedelta(hours=int(workTime.split(":")[0]),minutes=int(workTime.split(":")[1]))
+                    except (exceptions.NoSuchElementException, exceptions.TimeoutException) as e:
+                            logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象日データ取得 氏名:'+name+' 対象日:'+curdate.strftime("%Y%m%d"))
+                    # 対象日のデータ取得を終えたらインクリメントして翌日へ
+                    curdate += relativedelta(days=1)
+                # reletivedelta型をHH:MM型の文字列に変換
+                for key in wt.keys():
+                    if type(wt[key]) is relativedelta:
+                        wt[key] = '{hour:02}:{min:02}'.format(hour=wt[key].hours+wt[key].days*24,min=wt[key].minutes)
+                # 集計結果を追加
+                rets.append(wt)
+                logger.info(str(getCurLineNo())+' 集計結果追加 '+str(wt))
             
-        except exceptions.UnexpectedAlertPresentException as e:
-            # 対象社員が退職後等で不在の場合スキップ
-            name = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
-            logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象者変更 氏名:'+name)
-            # continue
+            except exceptions.UnexpectedAlertPresentException as e:
+                # 対象社員が退職後等で不在の場合スキップ
+                name = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
+                logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象者変更 氏名:'+name)
+                # continue
 
-        except Exception as e:
-            logger.error(str(getCurLineNo())+' 想定外の例外エラー発生')
-            raise(e)
+    except Exception as e:
+        logger.error(str(getCurLineNo())+' 想定外の例外エラー発生')
+        raise(e)
 
-        finally:
-            # 選択可なら次社員を選択
-            tgtname = 'button4'
-            if findElement('name',tgtname).is_enabled() :
-                findElement('name',tgtname,'click').click()
-                waitLocate()
-                # WebDriverWaitで例外エラーを止める事が出来なかったため、止む無くsleepを使用
-                time.sleep(FORCESLEEPSEC)
-                
-                logger.debug(str(getCurLineNo())+' 対象社員変更')
-            else :
-                # 次が選択不可ならループ終了
-                logger.info(str(getCurLineNo())+' 対象社員終了')
-                break
     return rets
 
 ####################################
@@ -715,12 +761,13 @@ def isHoliday(targetDate, syukujitsuPath):
 ####################################
 # 工数配分入力 - 個人選択
 ####################################
-def selectMember(id):
+def selectMember(id, xp):
     """
     Overview
         工数配分入力結果で個人選択する
     Args
-        社員番号
+        id: 社員番号
+        xp: 個人選択ボタンパス
     Return
         なし
     """
@@ -731,7 +778,7 @@ def selectMember(id):
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
         # 個人選択ボタンクリック
-        findElement('xpath','/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
+        findElement('xpath',xp).click()
         
         # サブウインドウにフォーカス移動
         wh = driver.window_handles
@@ -800,47 +847,15 @@ def checkManHourRegist():
     """
     logger.info(str(getCurLineNo())+' START function')
     try:
-        # フレーム指定
-        driver.switch_to.parent_frame()
-        frames = driver.find_elements_by_xpath("//frame")
-        driver.switch_to.frame(frames[1])
-        # 個人選択ボタンクリック
-        findElement('xpath','/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input').click()
-        
-        # サブウインドウにフォーカス移動
-        wh = driver.window_handles
-        driver.switch_to.window(wh[1])
-        # フレーム指定
-        frames = driver.find_elements_by_xpath("//frame")
-        driver.switch_to.frame(frames[1])
-
-        # selectインスタンス作成、メンバーリスト取得
-        ids = []
-        memberSelect = Select(findElement('name','lstSelemp'))
-        members = memberSelect.options
-        for member in members:
-            # 対象者フィルタオプションなし、またはありで指定されている場合、メンバーに追加
-            if cmpcodefilter is None or int(member.get_attribute('value')) in cmpcodefilter:
-                ids.append(member.get_attribute('value'))
-        memberSelect.select_by_index(0)
-        # 確定ボタンクリック
-        findElement('id','buttonKAKUTEI').click()
-        time.sleep(FORCESLEEPSEC)
-        
-        # メインウィンドウにフォーカス移動
-        driver.switch_to.window(wh[0])
-
-        # フレーム指定
-        driver.switch_to.parent_frame()
-        frames = driver.find_elements_by_xpath("//frame")
-        driver.switch_to.frame(frames[1])
+        # メンバー取得
+        ids = getMemberList('/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input')
 
         # 初期化
         rets = []
 
         # メンバー指定
         for id in ids:
-            selectMember(id)
+            selectMember(id, '/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[4]/input')
 
             # 対象期間のスタート区間まで戻る
             nowTerm = findElement('xpath','/html/body/form/table/tbody/tr[2]/td/table/tbody/tr/td/table/tbody/tr/td[6]').text.split(' ')
