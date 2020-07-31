@@ -141,8 +141,8 @@ def findElement(method, target, state='locate'):
     Overview
         指定要素を描画を待って取得する
     Args
-        method(string): 要素確認方法(xpath/id/name)
-        target(string): 対象の要素(id,xpath,name等)
+        method(string): 要素確認方法(xpath/id/name/linktext)
+        target(string): 対象の要素(id,xpath,name,linktext等)
         state(string): 確認内容(locate,click,select,text,frame等)
     Return
         対象の要素オブジェクト
@@ -160,6 +160,8 @@ def findElement(method, target, state='locate'):
             ret = driver.find_element_by_id(target)
         elif method == 'name':
             ret = driver.find_element_by_name(target)
+        elif method == 'linktext':
+            ret = driver.find_element_by_link_text(target)
         else:
             logger.error(str(getCurLineNo())+' 引数エラー method:'+method)
             raise ValueError
@@ -181,8 +183,8 @@ def waitDriver(method, target, state):
     Overview
         state別に指定要素の描画を待つ
     Args
-        method(string): 要素確認方法(xpath/id/name)
-        target(string): 対象の要素(id,xpath,name等)
+        method(string): 要素確認方法(xpath/id/name/linktext)
+        target(string): 対象の要素(id,xpath,name,linktext等)
         state(string): 確認内容(locate,click,select,frame等)
     Return
         なし
@@ -192,7 +194,8 @@ def waitDriver(method, target, state):
     bymethod = {
         'xpath' : By.XPATH,
         'id' : By.ID,
-        'name' : By.NAME
+        'name' : By.NAME,
+        'linktext' : By.LINK_TEXT
     }
     try:
         if state == 'locate':
@@ -545,7 +548,15 @@ def checkStampMiss():
                 logger.debug(str(getCurLineNo())+' rowid:'+rowid)
             except exceptions.NoSuchElementException as e :
                 logger.info(str(getCurLineNo())+' 最終行到達')
-                break
+                try:
+                    # 次ページリンクがあればクリック
+                    driver.find_element_by_link_text('次へ').click()
+                    logger.info(str(getCurLineNo())+' 次ページ移動')
+                    row = 0
+                    continue
+                except exceptions.NoSuchElementException as e:
+                    logger.info(str(getCurLineNo())+' 最終ページ到達')
+                    break
             except Exception as e :
                 logger.error(str(getCurLineNo())+' 対象行確認-想定外の例外エラー発生')
                 raise(e)
