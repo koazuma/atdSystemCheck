@@ -9,6 +9,7 @@ from selenium.common import exceptions
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 from logging import getLogger, StreamHandler, FileHandler, Formatter, DEBUG, INFO, WARNING, ERROR, handlers
+from selenium.webdriver.common.keys import Keys
 import sys
 import os
 import csv
@@ -141,8 +142,8 @@ def findElement(method, target, state='locate'):
     Overview
         指定要素を描画を待って取得する
     Args
-        method(string): 要素確認方法(xpath/id/name)
-        target(string): 対象の要素(id,xpath,name等)
+        method(string): 要素確認方法(xpath/id/name/linktext)
+        target(string): 対象の要素(id,xpath,name,linktext等)
         state(string): 確認内容(locate,click,select,text,frame等)
     Return
         対象の要素オブジェクト
@@ -160,6 +161,8 @@ def findElement(method, target, state='locate'):
             ret = driver.find_element_by_id(target)
         elif method == 'name':
             ret = driver.find_element_by_name(target)
+        elif method == 'linktext':
+            ret = driver.find_element_by_link_text(target)
         else:
             logger.error(str(getCurLineNo())+' 引数エラー method:'+method)
             raise ValueError
@@ -181,8 +184,8 @@ def waitDriver(method, target, state):
     Overview
         state別に指定要素の描画を待つ
     Args
-        method(string): 要素確認方法(xpath/id/name)
-        target(string): 対象の要素(id,xpath,name等)
+        method(string): 要素確認方法(xpath/id/name/linktext)
+        target(string): 対象の要素(id,xpath,name,linktext等)
         state(string): 確認内容(locate,click,select,frame等)
     Return
         なし
@@ -192,7 +195,8 @@ def waitDriver(method, target, state):
     bymethod = {
         'xpath' : By.XPATH,
         'id' : By.ID,
-        'name' : By.NAME
+        'name' : By.NAME,
+        'linktext' : By.LINK_TEXT
     }
     try:
         if state == 'locate':
@@ -531,21 +535,27 @@ def checkStampMiss():
         # 初期化
         row = 0
         rets = []
+        # スクロール用action生成
+        actions = ActionChains(driver)
 
         while True:
             # 初期化
             ret = {}
-            # スクロール用action生成
-            actions = ActionChains(driver)
             # 対象行の有無チェック
             rowid = TRIDBASE + str(row)
             try:
-                logger.debug(str(getCurLineNo())+' rowid:'+rowid)
                 driver.find_element_by_id(rowid)
-                logger.debug(str(getCurLineNo())+' rowid:'+rowid)
             except exceptions.NoSuchElementException as e :
                 logger.info(str(getCurLineNo())+' 最終行到達')
-                break
+                try:
+                    # 次ページリンクがあればクリック
+                    driver.find_element_by_link_text('次へ').click()
+                    logger.info(str(getCurLineNo())+' 次ページ移動')
+                    row = 0
+                    continue
+                except exceptions.NoSuchElementException as e:
+                    logger.info(str(getCurLineNo())+' 最終ページ到達')
+                    break
             except Exception as e :
                 logger.error(str(getCurLineNo())+' 対象行確認-想定外の例外エラー発生')
                 raise(e)
@@ -553,12 +563,17 @@ def checkStampMiss():
             # 要素取得
             for key in itemids.keys():
                 targetid = TDIDBASE + str(row) + '-' + itemids[key]
-                ret[key] = driver.find_element_by_id(targetid).text
-                # 取得できていない場合はスクロール
-                if ret[key] == '':
-                    actions.move_to_element(driver.find_element_by_id(targetid))
-                    actions.perform()
-                    ret[key] = driver.find_element_by_id(targetid).text
+                while True:
+                    ret[key] = findElement('id',targetid).text
+                    # 取得できていない場合はスクロール
+                    if ret[key] == '':
+                        logger.debug(str(getCurLineNo())+' 要素取得失敗のためスクロール key:'+key)
+                        driver.find_element_by_tag_name('body').send_keys(Keys.PAGE_DOWN)
+                        # 横方向の移動のため要素移動
+                        actions.move_to_element(driver.find_element_by_id(targetid))
+                        actions.perform()
+                    else:
+                        break
 
             # 次行にインクリメント
             logger.info(str(getCurLineNo())+' '+str(ret))
