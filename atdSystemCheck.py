@@ -412,6 +412,11 @@ def getOverWork():
             
             except exceptions.UnexpectedAlertPresentException as e:
                 # 対象社員が退職後等で不在の場合スキップ
+                # フレーム指定
+                driver.switch_to.parent_frame()
+                frames = driver.find_elements_by_xpath("//frame")
+                driver.switch_to.frame(frames[1])
+
                 name = findElement('xpath',"//*[@id='formshow']/table/tbody/tr[4]/td/table/tbody/tr/td[7]").text
                 logger.warning(str(getCurLineNo())+' 該当者不在のためスキップ - 対象者変更 氏名:'+name)
                 # continue
