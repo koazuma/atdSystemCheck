@@ -1030,7 +1030,7 @@ try:
     findElement('name','PassWord').send_keys(config.get('siteinfo', 'pw'))
 
     # ログインボタンクリック
-    findElement('name','LOGINBUTTON').click()
+    findElement('xpath','//*[@id="top"]/div/div/div/main/div[2]/div/form/table/tbody/tr[4]/td/label/span').click()
     waitLocate()
     time.sleep(1)
 except exceptions.TimeoutException as e:
