@@ -10,9 +10,9 @@
 
 ## 環境要件
 
-* pyhon3.7以上
+* python3.8以上
 * selenium chrome webdriver
-* relativedelta
+* dateutil
 * syukujitsu.csv
 
 ## 事前準備
@@ -26,7 +26,7 @@
 * 必要ライブラリ
   pipで以下ライブラリをインストールする。
   * selenium
-  * relativedelta
+  * relativedelta(dateutil)
 * chrome webdriver
   以下より使用バージョンに合ったchromedriverをダウンロードしておく。
   ChromeDriver <https://chromedriver.chromium.org/downloads>
