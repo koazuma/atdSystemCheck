@@ -99,7 +99,7 @@ def getSpan(targetDate, type):
             fromDate = date(baseDate.year, baseDate.month, FROM_DAY)
             toDate = fromDate + relativedelta(months=1) - relativedelta(days=1)
 
-    except exceptions.ValueError as e :
+    except ValueError as e :
         logger.error(str(getCurLineNo())+' '+ str(e))
         raise(e)
     
@@ -330,7 +330,6 @@ def getOverWork():
         NAME = "氏名"
         CMPID = "社員番号"
         TOTALTIME = "残業合計"
-        FDATE_ID = "grdXyw1500g-rc-0-0" # 1日目のid
         EMPTY_MARK = "----" # 稼働時間ゼロ表示
         #----------------------------------------
 
@@ -622,7 +621,7 @@ def addBossMailRecursive(id, mail, members, levels, depth=0):
                     addBossMailRecursive(bossid, mail, members, levels, depth +1)
             else:
                 # memers.jsonにいない場合
-                logger.error(str(getCurLineNo())+' Not found cmpcode:' + cmpcode + ' in members.')
+                logger.error(str(getCurLineNo())+' Not found cmpcode:' + id + ' in members.')
     return mail
 
 ####################################
@@ -772,7 +771,7 @@ def isHoliday(targetDate, syukujitsuPath):
             if jpholiday.is_holiday(targetDate.strftime('%Y-%m-%d')):
                 ret = True
     
-    except exceptions.TypeError as e :
+    except TypeError as e :
         logger.error(str(getCurLineNo())+' '+ str(e))
         raise(e)
     else:
@@ -807,13 +806,13 @@ def selectMember(id, xp):
         frames = driver.find_elements_by_xpath("//frame")
         driver.switch_to.frame(frames[1])
 
+        time.sleep(FORCESLEEPSEC)
         # selectインスタンス作成
         memberSelect = Select(findElement('name','lstSelemp'))
         # 指定のvalue値のoptionを選択
         memberSelect.select_by_value(id)
         # 確定ボタンクリック
         findElement('id','buttonKAKUTEI').click()
-        time.sleep(FORCESLEEPSEC)
 
         # メインウィンドウにフォーカス移動
         driver.switch_to.window(wh[0])
