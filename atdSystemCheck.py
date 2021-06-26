@@ -19,6 +19,7 @@ import json
 import argparse
 import inspect
 import time
+import pymsteams
 
 # scriptフォルダ
 parentdir = os.path.dirname(__file__)
@@ -461,6 +462,99 @@ def csvOutput(rets,fpath):
         logger.info(str(getCurLineNo())+' Output '+fpath)
 
 ####################################
+# 結果をTeamsにポスト
+####################################
+def postTeams(rets, url, title, color, bodyhead):
+    """
+    Overview
+        結果をTeamsにポストする。
+    Args
+        rets(list): 出力対象のリスト
+        url(string): ポスト先URL
+        title(string): ポスト時タイトル
+    Return
+        なし
+    """
+    logger.info(str(getCurLineNo())+' START function')
+
+    # teams出力設定
+    teamscard = pymsteams.connectorcard(url)
+    teamscard.title(title)
+    teamscard.color(color)
+    # メインtext
+    teamscard.text(bodyhead)
+
+    # section作成
+    section_data = pymsteams.cardsection()
+
+    # セクション作成
+    firstflag = 0
+    for ret in rets:
+        # チェック結果出力
+        teamsAddFact(section_data,ret.values())
+
+    # セクション追加
+    teamscard.addSection(section_data)
+    # linkボタン設定
+    teamscard.addLinkButton('CyberXeed', config.get('siteinfo', 'url'))
+
+    # リクエスト内容をログ出力
+    teamscard.printme()
+    # リクエスト送信
+    teamscard.send()
+
+####################################
+# Fact追加
+####################################
+def teamsAddFact(section, facts):
+    """
+    Overview
+       指定の配列の1つめをkey、2つ目以降をvalueとして追加する
+    Args
+        section(section): セクション
+        facts(list): 追加するデータ配列
+    Return
+        なし
+    """
+    print(facts)
+    firstflag = 0
+    k = ''
+    v = ''
+    for fact in facts:
+        if firstflag == 0:
+            k = fact
+            firstflag = firstflag + 1
+        elif firstflag == 1:
+            v = fact
+            firstflag = firstflag + 1
+        else:
+            v = v + ' ' + fact
+    section.addFact(k, v)
+    return()
+
+####################################
+# 社員番号削除
+####################################
+def deleteElement(rets):
+    """
+    Overview
+       不要な要素を削除する。(メール送信時は社員番号は削除してはいけない)
+       ついでに氏名のスペースも削除。
+    Args
+        rets(list): 辞書型オブジェクトのリスト
+    Return
+        rets(list): 指定のキーの要素を除いたリスト
+    """
+    for ret in rets:
+        # 不要なキー値を削除
+        for i in json.loads(config.get('teamsinfo', 'exclude_key')):
+            if i in ret.keys():
+                ret.pop(i)
+        # 氏名内のスペースを削除
+        ret['氏名'] = ''.join(ret['氏名'].split())
+    return(rets)
+
+####################################
 # 打ち忘れチェックリスト取得
 ####################################
 def checkStampMiss():
@@ -556,6 +650,8 @@ def checkStampMiss():
                     driver.find_element_by_link_text('次へ').click()
                     logger.info(str(getCurLineNo())+' 次ページ移動')
                     row = 0
+                    # スクロール用action再取得
+                    actions = ActionChains(driver)
                     continue
                 except exceptions.NoSuchElementException as e:
                     logger.info(str(getCurLineNo())+' 最終ページ到達')
@@ -951,7 +1047,7 @@ def cleanUpAfterError(error=None, webdriver=None):
 # コマンドライン引数定義
 argparser = argparse.ArgumentParser()
 argparser.add_argument('-m', '--mode', type=int, choices=[1,2,3], help='チェック種別 1:残業時間 2:打ち忘れ 3:工数登録', required=True)
-argparser.add_argument('-o', '--output', type=int, choices=[1,2], help='出力タイプ 1:メール送信 2:CSVファイル出力', required=True)
+argparser.add_argument('-o', '--output', type=int, choices=[1,2,3], help='出力タイプ 1:メール送信 2:CSVファイル出力 3:Teamsポスト', required=True)
 argparser.add_argument('-d', '--date', type=lambda s: datetime.strptime(s, '%Y%m%d'), help='yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。')
 argparser.add_argument('-e', '--exholiday', action='store_true', help='土日祝日の場合はチェックをしない。')
 argparser.add_argument('-c', '--cmpcodefilter', type=int, nargs='*', help='対象の社員番号を指定。ブランク区切りで複数指定可能。')
@@ -1055,7 +1151,7 @@ try:
     if mode == 1:
         retsOver = getOverWork()
         # メール送信の場合は合計時間が閾値以上のもののみリストに追加    
-        if args.output == 1:
+        if args.output == 1 or args.output == 3:
             OVERWORK_THRESHOLD = config.getint('modeinfo_'+str(mode), 'OVERWORK_THRESHOLD')
         else:
             OVERWORK_THRESHOLD = 0
@@ -1096,6 +1192,10 @@ try:
         # CSVファイル出力
         elif args.output == 2:
             csvOutput(rets,CSVNAME)
+        # Teamsポスト
+        elif args.output == 3:
+            rets = deleteElement(rets)
+            postTeams(rets, config.get('teamsinfo', 'url'), config.get('modeinfo_'+str(mode), 'MAILTITLE'), config.get('modeinfo_'+str(mode), 'color'), config.get('modeinfo_'+str(mode), 'MAILBODY'))
 except Exception as e:
     logger.error(str(getCurLineNo())+' 結果送信失敗')
     cleanUpAfterError(e,driver)

@@ -129,10 +129,12 @@ optional arguments:
   -h, --help            show this help message and exit
   -m {1,2,3}, --mode {1,2,3}
                         チェック種別 1:残業時間 2:打ち忘れ 3:工数登録
-  -o {1,2}, --output {1,2}
-                        出力タイプ 1:メール送信 2:CSVファイル出力
+  -o {1,2,3}, --output {1,2,3}
+                        出力タイプ 1:メール送信 2:CSVファイル出力 3:Teamsポスト
   -d DATE, --date DATE  yyyymmdd形式で日を指定すると、その日に実行した仮定で実行される。
   -e, --exholiday       土日祝日の場合はチェックをしない。
+  -c [id [id ...]], --cmpcodefilter [id [id ...]]
+                        対象の社員番号を指定。ブランク区切りで複数指定可能。チェック種別1,3のみ使用可能
 ```
 
 ### オプション
