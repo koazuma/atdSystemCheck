@@ -516,7 +516,6 @@ def teamsAddFact(section, facts):
     Return
         なし
     """
-    print(facts)
     firstflag = 0
     k = ''
     v = ''
@@ -677,7 +676,9 @@ def checkStampMiss():
 
             # 次行にインクリメント
             logger.info(str(getCurLineNo())+' '+str(ret))
-            rets.append(ret)
+            # 社員番号指定がある場合は
+            if cmpcodefilter is None or int(ret['社員番号']) in cmpcodefilter:
+                rets.append(ret)
             row += 1
 
         return(rets)
